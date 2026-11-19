@@ -14,6 +14,32 @@ const ffmpeg = (args) =>
     { timeout: 240000, maxBuffer: 1024 * 1024 },
   );
 
+// RelayVSR supplies the new picture. Keep the source audio packets and timestamps
+// instead of passing its decoded soundtrack through another ComfyUI encode.
+export async function restoreVideoAudio(picture, sourceFile) {
+  const dir = await mkdtemp(path.join(tmpdir(), "studio-original-audio-"));
+  try {
+    const input = path.join(dir, "picture.mp4");
+    const output = path.join(dir, "master.mp4");
+    await writeFile(input, picture);
+    const mux = (codec) => ffmpeg([
+      "-protocol_whitelist", "file,pipe", "-i", input,
+      "-protocol_whitelist", "file,pipe", "-i", sourceFile,
+      "-map", "0:v:0", "-map", "1:a?", "-c:v", "copy", "-c:a", codec,
+      "-map_metadata", "0", "-movflags", "+faststart+use_metadata_tags", output,
+    ]);
+    try {
+      await mux("copy");
+    } catch (e) {
+      if (!/codec not currently supported in container|could not find tag for codec/i.test(e.stderr || "")) throw e;
+      await mux("aac");
+    }
+    return await readFile(output);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 // H3 interprets a batch of reference frames at 24 fps, regardless of the source time base.
 export async function h3VideoReference(asset) {
   const dir = await mkdtemp(path.join(tmpdir(), "studio-video-ref-"));

@@ -1,8 +1,10 @@
-import { videoUpscale2kId } from "../../shared/generation-size.js";
+import { characterCardId, plainCharacterCardId, characterNameKey, characterTitleKey } from "../../shared/character-card.js";
+import { videoUpscale2kId, videoUpscale4kId } from "../../shared/generation-size.js";
 import { readFileSync } from "node:fs";
 import { h3Fields, h3VideoModelId } from "../../shared/h3-video.js";
 import { h3Continuation } from "./h3-continuation.mjs";
 import { poseSwapPreset } from "./pose-swap.mjs";
+import { secondPassRestore } from "./second-pass-restore.mjs";
 import {
   restoreModelId,
   relayRestoreModelId,
@@ -19,25 +21,24 @@ const h3 = load("h3.json");
 const field = (id, name = "value") => JSON.stringify([String(id), name]);
 const characterBindings = {
   kind: "image",
-  prompt: field(4),
+  prompt: "",
   output: "100",
-  images: [],
-  controls: [1, 2, 3, 216].map((id) => field(id)),
+  images: [field("source", "image")],
+  controls: [characterNameKey, characterTitleKey],
   outputSize: [2560, 1440],
-  promptLabel: "角色外貌与服装",
   fixedSeeds: true,
 };
 const plain = structuredClone(character);
-plain[130].inputs.image = plain[120].inputs.images;
-// Only render the final sheet in this variant. The original includes separate archive outputs.
-const sheet = {};
-function collect(id) {
-  if (sheet[id]) return;
-  sheet[id] = plain[id];
-  for (const value of Object.values(plain[id].inputs))
-    if (Array.isArray(value)) collect(value[0]);
-}
-collect("100");
+plain.frame.inputs.image = ["91", 0];
+for (const id of ["1", "2", "3", "120"]) delete plain[id];
+
+// Shot 01 saves the H3 preview at node 92, before the independent RelayVSR pass.
+const preview = Object.fromEntries(Object.entries(h3).filter(([id]) => Number(id) < 200 && !["163", "164"].includes(id)));
+preview[92] = {
+  ...structuredClone(h3[214]),
+  inputs: { ...h3[214].inputs, video: ["130", 0], filename_prefix: "CartoonStudio/H3/Preview" },
+  _meta: { title: "保存一采预览" },
+};
 const clipInput = {
   source: { class_type: "LoadVideo", inputs: { file: "video.mp4" } },
   components: {
@@ -53,18 +54,47 @@ function relayUpscale(images) {
   graph[205].inputs.images = graph[211].inputs.images = images;
   return graph;
 }
-const upscale = {
-  ...relayUpscale(["components", 0]),
-  213: structuredClone(h3[213]),
-  214: structuredClone(h3[214]),
-};
-upscale[213].inputs.fps = ["components", 2];
-upscale[213].inputs.audio = ["components", 1];
-upscale[214].inputs.filename_prefix = "CartoonStudio/RelayVSR/2K";
 const outputDimension = (expression) => ({
   class_type: "ComfyMathExpression",
   inputs: { expression, "values.a": ["size", 0], "values.b": ["size", 1] },
 });
+function videoUpscalePreset(id, long, short, label) {
+  const is4k = id === videoUpscale4kId;
+  // Shot 01 uses a centered Lanczos crop to deliver a standard 16:9 master.
+  const fit = (image, width, height) => ({
+    class_type: "ImageScale",
+    inputs: { image, width: [width, 1], height: [height, 1], upscale_method: "lanczos", crop: "center" },
+  });
+  const dimensions = (w, h) => outputDimension(w + " if a >= b else " + h);
+  const graph = {
+    ...clipInput,
+    size: { class_type: "GetImageSize", inputs: { image: ["components", 0] } },
+    width: dimensions(long, short),
+    height: dimensions(short, long),
+    ...(is4k && {
+      inputWidth: dimensions(long / 2, short / 2),
+      inputHeight: dimensions(short / 2, long / 2),
+      prepare: fit(["components", 0], "inputWidth", "inputHeight"),
+    }),
+    ...relayUpscale(is4k ? ["prepare", 0] : ["components", 0]),
+    212: fit(["211", 0], "width", "height"),
+    213: structuredClone(h3[213]),
+    214: structuredClone(h3[214]),
+  };
+  graph[206].inputs.noise_seed = 26112001;
+  graph[213]._meta.title = "接回源片声音";
+  graph[214]._meta.title = "保存 " + label + " 成片";
+  graph[213].inputs.fps = ["components", 2];
+  graph[213].inputs.audio = ["components", 1];
+  graph[214].inputs.filename_prefix = "CartoonStudio/RelayVSR/" + label;
+  return {
+    id, name: "视频高清修复 · RelayVSR 二采 " + label, graph,
+    bindings: {
+      kind: "video", output: "214", prompt: "", images: [], videos: [field("source", "file")],
+      controls: [], outputSize: [long, short], fixedSeeds: true,
+    },
+  };
+}
 function imageRestorePreset(id, algorithm, upscaleNodes, enhancedSource, size, strength) {
   return {
     id,
@@ -122,6 +152,7 @@ function imageRestorePreset(id, algorithm, upscaleNodes, enhancedSource, size, s
 }
 
 export const bundledPresets = [
+  secondPassRestore,
   imageRestorePreset(restoreModelId, "RealESRGAN", {
     model: { class_type: "UpscaleModelLoader", inputs: { model_name: "RealESRGAN_x4plus.pth" } },
     restore: {
@@ -158,26 +189,26 @@ export const bundledPresets = [
     },
   },
   {
-    id: "studio:preset:character-2k",
-    name: "角色卡 · 特写 / 正面 / 背面 2K",
+    id: characterCardId,
+    name: "参考图角色卡 · 特写 / 正面 / 背面 2K",
     graph: character,
     bindings: characterBindings,
   },
   {
-    id: "studio:preset:character-plain-2k",
+    id: plainCharacterCardId,
     name: "角色卡 · 无字三栏 2K",
-    graph: sheet,
-    bindings: { ...characterBindings, controls: [216].map((id) => field(id)) },
+    graph: plain,
+    bindings: { ...characterBindings, controls: [] },
   },
   {
     id: h3VideoModelId,
     family: "h3",
     durationKey: h3Fields.duration,
-    name: "H3 · 参考图生成视频 2K",
-    graph: h3,
+    name: "H3 · 多参考图一采预览",
+    graph: preview,
     bindings: {
       kind: "video",
-      output: "214",
+      output: "92",
       prompt: field(138),
       images: [field(137, "image")],
       controls: Object.values(h3Fields),
@@ -185,7 +216,7 @@ export const bundledPresets = [
       mentionPattern: "<Picture {n}>",
       promptLabel: "动作、运镜与声音",
       fixedSeeds: true,
-      outputSize: [2560, 1440],
+      outputSize: [1344, 768],
     },
   },
   {
@@ -253,29 +284,8 @@ export const bundledPresets = [
       controls: [],
     },
   },
-  {
-    id: videoUpscale2kId,
-    name: "成片放大到 2K · RelayVSR",
-    graph: {
-      ...clipInput,
-      ...upscale,
-      size: { class_type: "GetImageSize", inputs: { image: ["components", 0] } },
-      width: outputDimension("2560 if a >= b else 1440"),
-      height: outputDimension("1440 if a >= b else 2560"),
-      212: {
-        class_type: "ResizeAndPadImage",
-        inputs: {
-          image: ["211", 0], target_width: ["width", 1], target_height: ["height", 1],
-          interpolation: "lanczos", padding_color: "black",
-        },
-        _meta: { title: "等比适配 2K 画幅" },
-      },
-    },
-    bindings: {
-      kind: "video", output: "214", prompt: "", images: [], videos: [field("source", "file")],
-      controls: [], outputSize: [2560, 1440],
-    },
-  },
+  videoUpscalePreset(videoUpscale2kId, 2560, 1440, "2K"),
+  videoUpscalePreset(videoUpscale4kId, 3840, 2160, "4K"),
   {
     id: "studio:preset:replace-sound",
     name: "视频配音 · 替换音轨",

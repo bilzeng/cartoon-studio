@@ -6,9 +6,9 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { createServer } from "vite";
 import { makeNode } from "../../shared/studio.js";
-import { videoUpscale2kId } from "../../shared/generation-size.js";
+import { videoUpscale2kId, videoUpscale4kId } from "../../shared/generation-size.js";
 
-test("从成片创建独立 2K 节点，免填提示词，在下方编辑器集中显示真实步骤", async (t) => {
+test("从已选成片创建高清修复节点，切换至 4K 并查看生成进度", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "studio-upscale-"));
   process.env.STUDIO_DATA_DIR = dir;
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -48,29 +48,30 @@ test("从成片创建独立 2K 节点，免填提示词，在下方编辑器集�
         online: true,
         videoModels: [
           { id: "generator", name: "视频生成", hasPrompt: true },
-          {
-            id: videoUpscale2kId,
-            name: "成片放大到 2K · RelayVSR",
+          ...[videoUpscale2kId, videoUpscale4kId].map(id => ({
+            id, name: "视频高清修复 " + (id === videoUpscale2kId ? "2K" : "4K"),
             workflow: true,
             hasPrompt: false,
             fields: [],
             controls: [],
             mediaSlots: { video: 1 },
             maxRefs: 0,
-            outputSize: [2560, 1440],
-          },
+            outputSize: id === videoUpscale2kId ? [2560, 1440] : [3840, 2160],
+          })),
         ],
       },
     }),
   );
   let job;
+  await page.route("**/api/jobs?*ids=*", r => r.fulfill({ json: job ? [job] : [] }));
   await page.route("**/nodes/*/jobs*", (r) =>
     r.fulfill({ json: job ? [job] : [] }),
   );
   await page.route("**/generate", (r) => {
     job = {
       id: "upscale-test",
-      phase: "executing",
+      phase: "waiting",
+      queuePosition: 2,
       status: "running",
       created: new Date().toISOString(),
       step: {
@@ -88,8 +89,14 @@ test("从成片创建独立 2K 节点，免填提示词，在下方编辑器集�
   const download = await downloading;
   assert.equal(download.suggestedFilename(), "original.mp4");
   assert.equal(await download.failure(), null);
-  await page.getByRole("button", { name: "放大到 2K", exact: true }).click();
+  await page.getByRole("button", { name: "高清修复", exact: true }).click();
+  assert.equal(job, undefined);
+  await page.getByRole("combobox", { name: "输出清晰度" }).click();
+  await page.getByRole("option", { name: /4K/ }).click();
   await page.getByRole("button", { name: "开始放大", exact: true }).click();
+  await page.locator(".flow-tile-face").getByText("工作台排队第 2 位").waitFor();
+  await page.locator(".generation-result").getByText("工作台排队第 2 位", { exact: true }).waitFor();
+  job = { ...job, phase: "executing", queuePosition: undefined };
   const bar = page.locator(".generation-result").getByRole("progressbar", { name: "超分采样" });
   await bar.waitFor();
   const tile = page.locator(".flow-tile-face[data-generating]");
@@ -107,11 +114,20 @@ test("从成片创建独立 2K 节点，免填提示词，在下方编辑器集�
     asset.id,
   );
   const downstream = saved.nodes.find(
-    (n) => n.data.videoModel === videoUpscale2kId,
+    (n) => n.data.videoModel === videoUpscale4kId,
   );
   assert.ok(
     saved.edges.some(
       (e) => e.source === source.id && e.target === downstream.id,
     ),
   );
+  await page.route("**/api/jobs/upscale-test/cancel", r => {
+    assert.equal(r.request().method(), "POST");
+    job = { ...job, status: "cancelled", finishedAt: new Date().toISOString(), detail: "已取消生成" };
+    return r.fulfill({ json: job });
+  });
+  await page.getByRole("button", { name: "取消生成", exact: true }).click();
+  await page.getByText("已取消生成", { exact: true }).waitFor();
+  await page.locator(".flow-tile-face[data-generating]").waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "开始放大", exact: true }).waitFor();
 });

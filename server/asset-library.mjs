@@ -12,6 +12,11 @@ export function assetBindings(board) {
   for (const { id, data } of board.nodes || []) {
     add(id + "/asset", data.assetId);
     add(id + "/guide", data.guideAssetId);
+    add(id + "/video-restore", data.videoRestoreSource?.assetId);
+    if (data.kind === "stage") {
+      add(id + "/panorama", data.stage?.backgroundId);
+      for (const ref of data.stage?.referenceIds || []) add(id + "/stage-ref/" + ref,ref);
+    }
     add(id + "/mark", data.imageMark?.assetId);
   }
   return bindings;
@@ -109,6 +114,7 @@ export function assetCatalog(assets, projects, jobs, favorites, edits = {}) {
     for (const card of board.referenceCards || []) tag(card.imageId, referenceTypes[card.type]);
     tag(board.series?.refAssetId, "参考图");
     for (const { data } of board.nodes || []) {
+      if (data.kind === "stage") { tag(data.stage?.backgroundId, "全景"); tag(data.assetId, "机位截图"); }
       if (data.kind === "shot") tag(data.assetId, "分镜");
       if (data.canvasGroup) tag(data.assetId, data.canvasGroupName);
       tag(data.guideAssetId, "参考图");

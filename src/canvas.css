@@ -113,6 +113,17 @@ html:has(.flow-workspace) {
   background: rgba(22, 29, 34, 0.62);
   isolation: isolate;
 }
+.tile-queue-position {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: #252a2c;
+  color: #e6ebeb;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .tile-generation::before {
   content: "";
   position: absolute;
@@ -841,6 +852,21 @@ html:has(.flow-workspace) {
   max-height: 43vh;
   overflow: auto;
 }
+.media-tool-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+}
+.media-tool-fields label, .tool-source { display: grid; gap: 5px; min-width: 0; }
+.media-tool-fields label { flex: 1 1 100px; color: var(--sub); font-size: 12px; }
+.media-tool-fields input { width: 100%; min-width: 0; padding: 6px 8px; }
+.tool-source { flex: 2 1 160px; align-items: center; }
+.tool-source small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sub); }
+.tool-source .card-source-preview { grid-row: span 2; padding: 0; width: 54px; height: 54px; cursor: zoom-in; }
+.tool-source:has(.card-source-preview) { grid-template-columns: auto minmax(0, 1fr); }
+.card-source-preview img { width: 100%; height: 100%; object-fit: cover; border-radius: 5px; }
 .image-restore {
   display: flex;
   flex-wrap: wrap;
@@ -1216,3 +1242,10 @@ html:has(.flow-workspace) {
   background: #181a1de8;
   color: #fff;
 }
+
+.ds-tile { position:absolute; inset:0; display:grid; place-items:center; color:#b8ceca; background:#293031; }
+.ds-tile > img { position:absolute; width:100%; height:100%; object-fit:contain; }
+.ds-tile > div { position:relative; display:grid; justify-items:center; align-content:center; gap:9px; }
+.ds-tile span { font-size:12px; color:#bac4c3; }
+.ds-tile button { font:inherit; font-size:13px; font-weight:600; background:#d9e7e3; color:#202827; border:0; padding:7px 14px; border-radius:6px; cursor:pointer; }
+.ds-tile[data-has-frame=true] > div { align-self:end; padding-bottom:10px; }

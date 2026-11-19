@@ -4,8 +4,9 @@ import { currentUrl } from "./environments.mjs";
 import { settings, changeSettings } from "./files.mjs";
 import { fail } from "./storage.mjs";
 import { makeId } from "../shared/studio.js";
-import { isImageRestoreModel, relayRestoreModelId, restoreSizeKey } from "../shared/image-restore.js";
-import { h3ContinuationModelId, h3ContinuationSizeError } from "../shared/h3-video.js";
+import { isImageRestoreModel, relayRestoreModelId, restoreSizeKey, secondPassRestoreId, redrawStrengthKey, maxRedrawStrength } from "../shared/image-restore.js";
+import { isCharacterCard, characterCardId } from "../shared/character-card.js";
+import { h3VideoModelId, h3ContinuationModelId, h3ContinuationSizeError } from "../shared/h3-video.js";
 import { poseSwapModelId } from "../shared/pose-swap.js";
 
 export async function savePresetFiles(preset, descriptor, values) {
@@ -259,7 +260,14 @@ const qwenPoseAdapter = /(?:^|[/\\])VNCCS_QI2_PoseStudioV1\.1\.safetensors$/i;
 
 export function describePreset(preset, definitions) {
   const { fields, ...info } = inspectGraph(preset.graph, definitions);
+  if (preset.id === secondPassRestoreId) {
+    const denoise = fields.find(f => f.key === redrawStrengthKey);
+    if (denoise) denoise.max = Math.min(denoise.max ?? 1, maxRedrawStrength);
+  }
   checkBindings({ ...info, fields }, preset.bindings);
+  if (preset.id === secondPassRestoreId &&
+      !fields.find(f => f.id === "clip" && f.input === "type")?.choices?.includes("krea2"))
+    throw fail("二采放大需要支持 Krea2 的 CLIPLoader");
   const editable = fields.filter(
     (f) =>
       ![
@@ -274,6 +282,7 @@ export function describePreset(preset, definitions) {
   const dependencies = editable.filter(
     (f) =>
       f.type === "choice" &&
+      !(preset.id === secondPassRestoreId && f.input === "sampler_name") &&
       (/_name$/.test(f.input) ||
         /\.(safetensors|ckpt|gguf|pth|pt|bin)$/i.test(String(f.value))),
   );
@@ -288,6 +297,10 @@ export function describePreset(preset, definitions) {
         : matches.length === 1
           ? matches[0]
           : f.value);
+    if (preset.id === h3VideoModelId && f.id === "128" && !preset.fileMap?.[f.key] && !f.choices.includes(f.value)) {
+      const compatible = f.choices.filter(name => /(?:^|[/\\])qwen3vl[_-]32b[_-]minimax[_-]h3[_-]/i.test(name));
+      if (compatible.length === 1) f.value = compatible[0];
+    }
   }
   const n = preset.bindings.images?.length || 0;
   const poseSwapWeight = preset.id === poseSwapModelId &&
@@ -402,7 +415,7 @@ export function bindPreset(
   };
   const fields = new Map(descriptor.fields.map((f) => [f.key, f]));
   for (const key of Object.keys(values))
-    if (!fields.has(key)) throw fail("工作流输入已变化，请重新配置");
+    if (!fields.has(key) && !isCharacterCard(preset.id) && preset.id !== h3VideoModelId) throw fail("工作流输入已变化，请重新配置");
   for (const f of fields.values()) {
     const value = values[f.key] ?? f.value;
     const restoreSize = isImageRestoreModel(preset.id) && f.key === restoreSizeKey;
@@ -429,10 +442,20 @@ export function bindPreset(
       throw fail("请检查当前环境中的工作流参数：" + f.title);
     assign(f.key, value);
   }
+  // The typography node always wraps a title in book marks, even when left blank.
+  if (preset.id === characterCardId && !graph[1].inputs.value.trim()) {
+    graph.blankTitle = { class_type: "EmptyImage", inputs: { width: 340, height: 170, batch_size: 1, color: 16777215 } };
+    graph.hideTitle = { class_type: "ImageCompositeMasked", inputs: {
+      destination: ["120", 0], source: ["blankTitle", 0], x: 0, y: 0, resize_source: false,
+    } };
+    graph.frame.inputs.image = ["hideTitle", 0];
+  }
   if (preset.id === relayRestoreModelId)
     graph.prepare.inputs.largest_size = Math.ceil(graph.size.inputs.largest_size / 2);
   // At zero strength the plain resize can go straight to the output.
   if (isImageRestoreModel(preset.id) && graph.blend?.inputs.blend_factor === 0)
+    graph.out.inputs.images = ["size", 0];
+  if (preset.id === secondPassRestoreId && graph.sample.inputs.denoise === 0)
     graph.out.inputs.images = ["size", 0];
   if (preset.id === h3ContinuationModelId) {
     const { resolution, aspect_ratio } = graph.settings.inputs;

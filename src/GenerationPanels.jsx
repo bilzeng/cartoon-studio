@@ -559,10 +559,10 @@ export function GenerationSettings({
                         <Icon size={15} />
                         {name}
                         <small>
-                          {key === h3Fields.landscape && model.baseModel
+                          {key === h3Fields.landscape && model.outputSize
                             ? value
-                              ? "1344×768"
-                              : "768×1344"
+                              ? model.outputSize.join("×")
+                              : [...model.outputSize].reverse().join("×")
                             : detail}
                         </small>
                       </span>
@@ -697,7 +697,8 @@ export function GenerationHistory({ jobs, assets, data, projectId, close, apply 
                 )}
                 <strong>
                   {job.status === "running"
-                    ? "正在生成"
+                    ? (job.phase === "waiting" ? "排队中" : "正在生成")
+                    : job.status === "cancelled" ? "已取消生成"
                     : job.status === "failed"
                       ? "本次生成失败"
                       : "预览素材暂不可用"}
@@ -719,7 +720,8 @@ export function GenerationHistory({ jobs, assets, data, projectId, close, apply 
                 used = !!asset && asset.id === data.assetId;
               const caption =
                 j.status === "running"
-                  ? "生成中"
+                  ? (j.phase === "waiting" ? "排队中" : "生成中")
+                  : j.status === "cancelled" ? "已取消"
                   : j.status === "failed"
                     ? "生成失败"
                     : i === 0

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { settleCanvasJobs } from "../shared/canvas";
+import { queueLabel } from "../shared/job-timing";
 import { api } from "./client";
 import { kinds, makeNode } from "../shared/studio";
 export function useBoard(id, initialKind, notify) {
@@ -100,6 +101,7 @@ export function useBoard(id, initialKind, notify) {
 
 export function useCanvasResults(board, edit, refresh) {
   const project = board?.id;
+  const [queueLabels, setQueueLabels] = useState({});
   const pending = JSON.stringify(
     (board?.nodes || [])
       .filter((n) => n.data.pendingCanvasJob)
@@ -113,22 +115,17 @@ export function useCanvasResults(board, edit, refresh) {
     async function poll() {
       const finished = new Map();
       try {
-        await Promise.all(
-          targets.map(async ([nodeId, jobId]) => {
-            const rows = await api(
-              "/projects/" +
-                project +
-                "/nodes/" +
-                encodeURIComponent(nodeId) +
-                "/jobs?job=" +
-                encodeURIComponent(jobId),
-            );
-            const job = rows.find((j) => j.id === jobId);
-            if (job?.status !== "running")
-              finished.set(jobId, { ...job, nodeId });
-          }),
-        );
+        const ids = targets.map(([, id]) => id).join(",");
+        const rows = await api("/jobs?" + new URLSearchParams({ project, ids }));
         if (!live) return;
+        const byId = new Map(rows.map(j => [j.id, j]));
+        const labels = {};
+        for (const [nodeId, jobId] of targets) {
+          const job = byId.get(jobId);
+          if (job?.status !== "running") finished.set(jobId, { ...job, nodeId });
+          else if (queueLabel(job)) labels[jobId] = queueLabel(job);
+        }
+        setQueueLabels(prev => JSON.stringify(prev) === JSON.stringify(labels) ? prev : labels);
         if (finished.size) {
           await refresh();
           if (live) edit((b) => settleCanvasJobs(b, finished));
@@ -143,4 +140,5 @@ export function useCanvasResults(board, edit, refresh) {
       clearTimeout(timer);
     };
   }, [project, pending, edit, refresh]);
+  return queueLabels;
 }

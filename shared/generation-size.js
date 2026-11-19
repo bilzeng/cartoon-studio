@@ -1,5 +1,7 @@
 import { ratios } from "./series.js";
 export const videoUpscale2kId = "studio:preset:video-upscale-2k";
+export const videoUpscale4kId = "studio:preset:video-upscale-4k";
+export const isVideoUpscale = id => id === videoUpscale2kId || id === videoUpscale4kId;
 export const defaultMaxSide = 4096;
 export function outputSize(kind, ratio, custom) {
   return custom ? [custom.width, custom.height] : ratios[ratio][kind];

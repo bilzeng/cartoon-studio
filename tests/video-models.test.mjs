@@ -6,7 +6,9 @@ import { resolveWorkflowInputs, workflowNeeds } from "../shared/canvas.js";
 import { h3Continuation } from "../server/presets/h3-continuation.mjs";
 import { h3ContinuationFields } from "../shared/h3-video.js";
 import { bundledPresets } from "../server/presets/catalog.mjs";
-import { relayOriginalRestoreModelId, restoreSizeKey } from "../shared/image-restore.js";
+import {
+  relayOriginalRestoreModelId, restoreSizeKey, secondPassRestoreId, redrawStrengthKey,
+} from "../shared/image-restore.js";
 
 test("视频权重按模型接入对应的条件节点，风格不会重复叠加加速器", () => {
   const cinematic = "MiniMax-H3/Cinematic.safetensors";
@@ -181,6 +183,30 @@ test("两段续接共用已选参考图，校验第二段提示词并独立传�
   assert.throws(() => bindPreset(h3Continuation, model, bound, [], 500), /最长边上限/);
 });
 
+test("二采放大在目标尺寸编码原图，零重绘跳过采样", () => {
+  const preset = bundledPresets.find(p => p.id === secondPassRestoreId);
+  const descriptor = { fields: [
+    { key: restoreSizeKey, input: "largest_size", title: "输出长边", type: "INT", min: 1, max: 16384, value: 2560 },
+    { key: redrawStrengthKey, input: "denoise", title: "重绘强度", type: "FLOAT", min: 0, max: 0.5, value: 0.12 },
+  ] };
+  const bind = values => bindPreset(preset, descriptor, values, [], 4096).graph;
+  const graph = bind({ [restoreSizeKey]: 2051, [redrawStrengthKey]: 0.16 });
+  assert.equal(graph.size.inputs.largest_size, 2051);
+  assert.deepEqual(graph.dimensions.inputs.image, ["size", 0]);
+  assert.deepEqual(graph.encode.inputs.pixels, ["aligned", 0]);
+  assert.deepEqual(graph.sample.inputs.latent_image, ["encode", 0]);
+  assert.equal(graph.sample.inputs.denoise, 0.16);
+  assert.deepEqual(graph.decode.inputs.samples, ["sample", 0]);
+  assert.deepEqual(graph.result.inputs, {
+    image: ["decode", 0], width: ["dimensions", 0], height: ["dimensions", 1],
+    upscale_method: "bicubic", crop: "disabled",
+  });
+  assert.deepEqual(graph.out.inputs.images, ["result", 0]);
+  assert.deepEqual(bind({ [redrawStrengthKey]: 0 }).out.inputs.images, ["size", 0]);
+  assert.throws(() => bind({ [redrawStrengthKey]: 0.9 }), /工作流参数/);
+  assert.throws(() => bind({ [restoreSizeKey]: 8192 }), /最长边/);
+});
+
 test("图片原流程沿用镜头 27 的 RelayVSR 参数和原图输入", () => {
   const preset = bundledPresets.find((p) => p.id === relayOriginalRestoreModelId);
   const descriptor = {
@@ -200,4 +226,60 @@ test("图片原流程沿用镜头 27 的 RelayVSR 参数和原图输入", () => 
   assert.deepEqual(graph.out.inputs.images, ["size", 0]);
   assert.ok(!Object.values(graph).some((n) => n.class_type === "ImageBlend"));
   assert.throws(() => bindPreset(preset, descriptor, { [restoreSizeKey]: 8192 }, [], 4096), /超过环境最长边/);
+});
+
+test("镜头01一采仅提交 H3，高清修复按选定分辨率重新采样并复用一采音轨", () => {
+  const preview = bundledPresets.find(p => p.id === "studio:preset:h3-2k");
+  const descriptor = {fields: [], minRefs: 0, maxRefs: 9};
+  const graph = bindPreset(preview, descriptor, {}, [], 2048, 3).graph;
+  assert.deepEqual(graph[preview.bindings.output].inputs.video, ["130", 0]);
+  assert.deepEqual(graph[130].inputs.images, ["122", 0]);
+  assert.deepEqual(graph[130].inputs.audio, ["121", 0]);
+  assert.equal(graph[130].inputs.fps, 24);
+  assert.deepEqual(graph[136].inputs["ref_images.ref_image_2"], ["studio-ref-3", 0]);
+  assert.ok(!Object.values(graph).some(n => /RelayVSR|VSRDecode/.test(n.class_type)));
+  const hd = bundledPresets.find(p => p.id === "studio:preset:video-upscale-4k");
+  assert.deepEqual(hd.bindings.outputSize, [3840, 2160]);
+  const bound = bindPreset(hd, {fields: []}).graph;
+  assert.deepEqual(bound[205].inputs.images, ["prepare", 0]);
+  assert.deepEqual(bound[211].inputs.images, ["prepare", 0]);
+  assert.deepEqual(bound[211].inputs.samples, ["210", 0]);
+  assert.match(bound.inputWidth.inputs.expression, /1920/);
+  assert.match(bound.width.inputs.expression, /3840/);
+  assert.deepEqual(bound[213].inputs.audio, ["components", 1]);
+  assert.deepEqual(bound[213].inputs.fps, ["components", 2]);
+});
+
+test("旧角色卡节点使用已连接的原图，三个视图共用身份且可独立填写署名", () => {
+  const preset = bundledPresets.find(p => p.id === "studio:preset:character-2k");
+  const source = {id: "portrait", kind: "image"};
+  const guide = { id: "n1", data: { assetId: source.id, title: "原图" } };
+  const inputs = { guides: [guide], upstream: [guide] };
+  const oldNode = {data: {canvasRef: "none", text: "旧选角描述"}};
+  const result = resolveWorkflowInputs(inputs, oldNode, [source], {id: preset.id});
+  assert.deepEqual(result.media.image, [source]);
+  assert.equal(result.prompt, "");
+  assert.equal(result.error, "");
+  assert.ok(resolveWorkflowInputs({...inputs, guides: []}, oldNode, [], {id: preset.id}).error);
+  const fields = ["1", "2"].map(id => ({id, key: JSON.stringify([id, "value"]), type: "STRING", value: ""}));
+  const graph = bindPreset(preset, {fields}, {[fields[0].key]: "短剧", [fields[1].key]: "青禾"}).graph;
+  assert.equal(graph.source.inputs.image, "{{image1}}");
+  assert.deepEqual(graph[50].inputs["images.image_1"], ["source", 0]);
+  assert.deepEqual(graph[200].inputs["images.image_1"], ["source", 0]);
+  assert.deepEqual(graph[70].inputs["images.image_1"], ["202", 0]);
+  assert.deepEqual(graph[120].inputs.project_name, ["1", 0]);
+  assert.equal(graph[1].inputs.value, "短剧");
+  assert.equal(graph[2].inputs.value, "青禾");
+  assert.deepEqual(graph[120].inputs.character_name, ["2", 0]);
+  assert.deepEqual(bindPreset(preset, {fields}).graph.frame.inputs.image, ["hideTitle", 0]);
+});
+
+test("二采沿用创建修复节点时选用的视频版本", () => {
+  const assets = ["approved", "later"].map(id => ({ id, kind: "video" }));
+  const upstream = [{id: "clip", data: {assetId: "later"}}];
+  const inputs = {upstream, guides: [], words: [], series: {}};
+  const node = {data: {text: "", videoRestoreSource: {nodeId: "clip", assetId: "approved"}}};
+  const model = {id: "studio:preset:video-upscale-4k", kind: "video", maxRefs: 0, mediaSlots: {video: 1}};
+  assert.deepEqual(resolveWorkflowInputs(inputs, node, assets, model).media.video, [assets[0]]);
+  assert.ok(resolveWorkflowInputs(inputs, node, assets.slice(1), model).error);
 });

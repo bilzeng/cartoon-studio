@@ -130,7 +130,7 @@ function providerHeaders({ key, protocol }) {
   return headers;
 }
 
-async function providerJson(profile, route, options, signal) {
+async function providerJson(profile, route, options, signal, withImages = false) {
   try {
     const response = await fetch(profile.baseUrl + route, {
       ...options,
@@ -141,6 +141,7 @@ async function providerJson(profile, route, options, signal) {
     if (!response.ok) {
       const hint =
         {
+          400: withImages ? "请确认所选模型支持图片输入，并检查请求协议" : "请检查所选协议、模型 ID 和服务状态",
           401: "请检查 API Key",
           402: "请检查账户余额",
           403: "请检查模型访问权限",
@@ -161,7 +162,7 @@ async function providerJson(profile, route, options, signal) {
   }
 }
 
-async function requestCompletion(profile, system, user, { test = false } = {}) {
+export async function requestCompletion(profile, system, user, { test = false, images = [], signal } = {}) {
   let route, body;
   const { model, protocol } = profile;
   if (protocol === "anthropic") {
@@ -196,11 +197,27 @@ async function requestCompletion(profile, system, user, { test = false } = {}) {
       };
     }
   }
+  if (images.length) {
+    const url = image => "data:" + image.mime + ";base64," + image.data;
+    if (protocol === "responses") body.input = [{ role:"user", content:[
+      { type:"input_text", text:user }, ...images.map(i => ({ type:"input_image", image_url:url(i) })),
+    ] }];
+    if (protocol === "chat") body.messages[1].content = [{ type:"text", text:user },
+      ...images.map(i => ({ type:"image_url", image_url:{ url:url(i) } }))];
+    if (protocol === "anthropic") body.messages[0].content = [...images.map(i => ({
+      type:"image", source:{ type:"base64", media_type:i.mime, data:i.data },
+    })), { type:"text", text:user }];
+    if (protocol === "gemini") body.contents[0].parts.push(...images.map(i => ({
+      inlineData:{ mimeType:i.mime, data:i.data },
+    })));
+  }
+  const timeout = AbortSignal.timeout(test ? 60000 : 180000);
   const data = await providerJson(
     profile,
     route,
     { method: "POST", body: JSON.stringify(body) },
-    AbortSignal.timeout(test ? 60000 : 180000),
+    signal ? AbortSignal.any([signal,timeout]) : timeout,
+    images.length > 0,
   );
   let output;
   if (

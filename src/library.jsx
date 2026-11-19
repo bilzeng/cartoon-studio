@@ -1,4 +1,6 @@
 import { JobTiming } from "./JobTiming";
+import { queueLabel } from "../shared/job-timing";
+import { CancelGeneration } from "./CancelGeneration";
 import React, { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Clock3, Download, FolderOpen, LoaderCircle, Star, Upload } from "lucide-react";
 import { api, uploadAsset } from "./client";
@@ -334,7 +336,7 @@ export function Library({
     </div>
   );
 }
-export function Jobs({ rows, assets, onUse, onApply, onTake }) {
+export function Jobs({ rows, assets, onUse, onApply, onTake, refresh, notify }) {
   return (
     <div className="jobs">
       {!rows.length && (
@@ -349,6 +351,7 @@ export function Jobs({ rows, assets, onUse, onApply, onTake }) {
           <article key={j.id}>
             <div className="job-top">
               <strong>
+                {j.title && j.title + " · "}
                 {
                   {
                     export: "成片导出",
@@ -363,11 +366,14 @@ export function Jobs({ rows, assets, onUse, onApply, onTake }) {
                   <LoaderCircle className="spin" size={13} />
                 )}
                 {
-                  { running: "处理中", done: "已完成", failed: "失败" }[
+                  queueLabel(j) || { running: "处理中", done: "已完成", failed: "失败", cancelled: "已取消" }[
                     j.status
                   ]
                 }
               </span>
+              {j.status === "running" && (j.type !== "export" || j.phase === "waiting") && (
+                <CancelGeneration jobId={j.id} className="outline" onCancelled={refresh} onError={notify} />
+              )}
             </div>
             <p>{j.detail}</p>
             <JobTiming job={j} />

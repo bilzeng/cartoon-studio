@@ -7,8 +7,8 @@
   overflow: hidden;
   isolation: isolate;
 }
-.restore-comparison :is(img, .restore-handle, .restore-grip, .restore-divider) { transition: none; }
-.restore-comparison img {
+.restore-comparison :is(img, video, .restore-handle, .restore-grip, .restore-divider) { transition: none; }
+.restore-comparison :is(img, video) {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -21,6 +21,37 @@
   clip-path: inset(0 0 0 var(--split));
   background: #252525;
 }
+.flow-tile-face[data-video-compare] { container-type: size; }
+.flow-tile-face > .restore-comparison[data-video] {
+  position: relative;
+  width: min(100cqw, calc(100cqh * var(--video-ratio)));
+  aspect-ratio: var(--video-ratio);
+}
+/* The RelayVSR master uses a centered crop to its delivery aspect ratio. */
+.restore-comparison video.restore-original { object-fit: cover; }
+.restore-comparison[data-video]:not([data-ready]) .restore-original { visibility: hidden; }
+.restore-comparison[data-controls]:not([data-expanded]) .restore-caption { bottom: 37px; }
+.restore-video-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: rgb(16 18 19 / 88%);
+  color: white;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.restore-comparison > .restore-video-controls {
+  position: absolute;
+  inset: auto 5px 4px;
+  z-index: 1;
+}
+.restore-video-controls button { display: grid; place-items: center; padding: 3px; color: inherit; }
+.restore-video-controls input { flex: 1; min-width: 0; height: 16px; accent-color: #a6d9d8; }
+.restore-video-controls span { white-space: nowrap; }
+.restore-viewer-transport { width: min(540px, 95%); }
+.reference-viewer:has(.restore-viewer-transport)[open] { grid-template-rows: minmax(0, 1fr) auto auto; }
 .flow-tile-face[data-group-image="true"] .restore-comparison img {
   pointer-events: auto;
   cursor: zoom-in;
@@ -108,7 +139,7 @@
   --unit: 1px;
   --grip: 34px;
 }
-.restore-comparison[data-expanded] > img:first-child {
+.restore-comparison[data-expanded] > :is(img, video):first-child {
   display: block;
   position: static;
   width: auto;
@@ -131,7 +162,7 @@
 
 .restore-viewer-stage[data-actual] .restore-comparison { cursor: grab; }
 .restore-viewer-stage[data-actual] .restore-comparison:active { cursor: grabbing; }
-.restore-viewer-stage[data-actual] .restore-comparison > img:first-child {
+.restore-viewer-stage[data-actual] .restore-comparison > :is(img, video):first-child {
   max-width: none;
   max-height: none;
 }

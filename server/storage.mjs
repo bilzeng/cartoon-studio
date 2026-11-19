@@ -4,6 +4,7 @@ import { defaultSeries, ratios } from "../shared/series.js";
 import { allAssets, findBoard, listBoardFiles, persistBoard } from "./project-files.mjs";
 export { allAssets, assetPath, storeAsset } from "./project-files.mjs";
 import { hostname } from "node:os";
+import { validStage } from "../shared/director-stage.js";
 import { kinds } from "../shared/studio.js";
 import { poseSwapRoles } from "../shared/pose-swap.js";
 import {
@@ -21,6 +22,11 @@ export function fail(message, status = 400) {
 export const now = () => new Date().toISOString();
 export async function jobs() {
   const rows = await readJson(jobFile, []);
+  let position = 0;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].status === "running" && rows[i].phase === "waiting")
+      rows[i].queuePosition = ++position;
+  }
   // Older successful jobs recorded the result asset's creation but no finish time.
   if (!rows.some(j => j.status === "done" && !j.finishedAt && j.assetId)) return rows;
   const createdByAsset = new Map((await readJson(assetFile, [])).map(a => [a.id, a.created]));
@@ -33,7 +39,7 @@ export const changeJobs = (fn) =>
     return items;
   });
 function abandoned(job) {
-  if (job.status !== "running") return false;
+  if (job.status !== "running" || (job.phase === "waiting" && job.payload)) return false;
   if (!job.owner || job.owner.host !== hostname()) return true;
   try {
     process.kill(job.owner.pid, 0);
@@ -137,6 +143,9 @@ export async function validateBoard(board) {
       d.duration > 30
     )
       throw fail("节点内容或镜头时长无效");
+    if (d.kind === "stage" && (!validStage(d.stage) || d.stage.referenceIds?.some(id => assets.get(id)?.kind !== "image") ||
+        (d.stage.backgroundId && assets.get(d.stage.backgroundId)?.kind !== "image")))
+      throw fail("导演台的场景、机位或背景图无效");
     for (const kind of ["image", "video", "audio"]) {
       const optimization = d[kind + "PromptOptimization"];
       if (optimization == null) continue;
@@ -237,6 +246,9 @@ export async function validateBoard(board) {
     if (
       (d.canvasRatio !== undefined && !Object.hasOwn(ratios, d.canvasRatio)) ||
       (d.guideAssetId && assets.get(d.guideAssetId)?.kind !== "image") ||
+      (d.videoRestoreSource != null && (d.kind !== "video" ||
+        typeof d.videoRestoreSource.nodeId !== "string" ||
+        assets.get(d.videoRestoreSource.assetId)?.kind !== "video")) ||
       (d.customSize != null &&
         ![d.customSize.width, d.customSize.height].every(
           (v) => Number.isSafeInteger(v) && v > 0 && v <= 131072,
@@ -283,7 +295,7 @@ export async function validateBoard(board) {
         !a ||
         !(d.kind === "shot"
           ? ["image", "video"].includes(a.kind)
-          : a.kind === d.kind)
+          : a.kind === (d.kind === "stage" ? "image" : d.kind))
       )
         throw fail("节点素材类型不匹配");
     }

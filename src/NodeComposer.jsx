@@ -1,4 +1,6 @@
 import { JobTiming } from "./JobTiming";
+import { queueLabel } from "../shared/job-timing";
+import { CancelGeneration } from "./CancelGeneration";
 import { PromptOptimizer } from "./PromptOptimizer";
 import { PromptPresetLibrary } from "./PromptPresetLibrary";
 import { optimizationContext, currentOptimization, optimizedNodeChanges } from "../shared/prompt-optimizer";
@@ -6,6 +8,9 @@ import { ModelPicker, missingFiles } from "./ModelPicker";
 import {
   defaultRestoreSize,
   defaultRestoreStrength,
+  defaultRedrawStrength,
+  redrawStrengthKey,
+  secondPassRestoreId,
   restoreModelId,
   isImageRestoreModel,
   relayRestoreModelId,
@@ -17,6 +22,8 @@ import {
 import { restoreOriginal } from "./RestoreComparison";
 import { ImageRestore } from "./ImageRestore";
 import { VideoDuration } from "./VideoDuration";
+import { Select } from "./Select";
+import { characterCardId, characterNameKey, characterTitleKey, isCharacterCard } from "../shared/character-card";
 import { PoseSwapEditor } from "./PoseSwap";
 import { poseSwapModelId } from "../shared/pose-swap";
 import {
@@ -24,7 +31,7 @@ import {
 } from "../shared/h3-video";
 import {
   defaultMaxSide,
-  videoUpscale2kId,
+  videoUpscale2kId, videoUpscale4kId, isVideoUpscale,
   outputSize,
   sizeError,
 } from "../shared/generation-size";
@@ -89,6 +96,7 @@ export function NodeComposer({
   onGenerateShot,
   openRestoreNode,
   openPoseSwapNode,
+  openLinkedMediaTool,
   onMediaSubmission,
   droppingImages,
   refresh,
@@ -128,7 +136,7 @@ export function NodeComposer({
     (engine?.video ? [{ ...engine.video, id: "studio:default-video" }] : []);
   const videoModel = data.videoModel
     ? videos.find((m) => m.id === data.videoModel)
-    : videos.find((m) => !m.workflow) ||
+    : videos.find((m) => m.id === h3VideoModelId && !missingFiles(m).length) || videos.find((m) => !m.workflow) ||
       videos.find((m) => m.baseModel && (inputs.reference || !m.needsImage)) ||
       videos.find((m) => m.id !== h3ContinuationModelId && m.hasPrompt !== false && !missingFiles(m).length);
   const audioModels = engine?.audioModels || [];
@@ -139,11 +147,14 @@ export function NodeComposer({
     kind === "image" ? imageModel : kind === "video" ? videoModel : audioModel;
   const restoring = kind === "image" && isImageRestoreModel(data.imageModel);
   const swapping = kind === "image" && model?.id === poseSwapModelId;
+  const card = kind === "image" && isCharacterCard(model?.id);
   const poseSwap = engine?.imageModels?.find((m) => m.id === poseSwapModelId);
-  const upscalingVideo = kind === "video" && data.videoModel === videoUpscale2kId;
+  const upscalingVideo = kind === "video" && isVideoUpscale(data.videoModel);
   const continuingVideo = kind === "video" && model?.id === h3ContinuationModelId;
   const originalRestore = kind === "image" && data.imageModel === relayOriginalRestoreModelId;
-  const preferredRestore = [relayOriginalRestoreModelId, relayRestoreModelId, restoreModelId]
+  const secondPass = data.imageModel === secondPassRestoreId;
+  const strengthKey = secondPass ? redrawStrengthKey : restoreStrengthKey;
+  const preferredRestore = [secondPassRestoreId, relayOriginalRestoreModelId, relayRestoreModelId, restoreModelId]
     .map((id) => engine?.imageModels?.find((m) => m.id === id))
     .find((m) => m && !missingFiles(m).length);
   const resolved = model?.workflow
@@ -174,11 +185,11 @@ export function NodeComposer({
 
   const acceptsRef =
     model?.reference ?? model?.needsImage;
-  const waitingForRef = !swapping && inputs.awaitingImage && (kind === "image" ? acceptsRef : model?.needsImage);
+  const waitingForRef = !card && !swapping && inputs.awaitingImage && (kind === "image" ? acceptsRef : model?.needsImage);
   const ratio = data.canvasRatio || board.series.ratio;
   const optimization = generated && model && !restoring && !upscalingVideo && model.hasPrompt !== false
     ? optimizationContext(data, model, resolved, ratio, { forEditor: true }) : null;
-  const restoredAsset = restoring && assets.find(a => a.id === data.assetId);
+  const restoredAsset = (restoring || upscalingVideo) && assets.find(a => a.id === data.assetId);
   const canCompare = restoreOriginal(restoredAsset, assets);
   const draftKey = kind + "PromptOptimization";
   const adopted = data[draftKey];
@@ -235,6 +246,7 @@ export function NodeComposer({
       m.fields?.find((f) => f.key === h3ContinuationFields.aspect)?.choices.includes(ratio);
     set({
       [kind + "Model"]: m.id,
+      ...(!isVideoUpscale(m.id) && data.videoRestoreSource && { videoRestoreSource: undefined }),
       canvasRefIds: undefined,
       selectedMediaRefs: undefined,
       imageVae: "",
@@ -242,7 +254,8 @@ export function NodeComposer({
         m.loras?.includes(l.name),
       ),
       workflowValues: restore
-        ? { [restoreSizeKey]: initialRestoreSize(m) }
+        ? { [restoreSizeKey]: restoring && Number.isInteger(restoreSize) && restoreSize > 0
+              ? Math.min(restoreSize, restoreSizeLimit(m)) : initialRestoreSize(m) }
         : continuationAspect ? { [h3ContinuationFields.aspect]: ratio } : {},
       ...(restore
         ? {
@@ -365,6 +378,7 @@ export function NodeComposer({
             b = placed.board;
             const newIds = placed.references.filter((ref) => ref.data.kind === selectKind).map((ref) => ref.id);
             const next = { ...target.data, canvasRef: selectKind && selectKind !== "image" ? target.data.canvasRef : "" };
+            if (card) next.canvasRef = placed.references[0].id;
             if (newIds.length) {
               const image = selectKind === "image";
               const selected = image ? resolved.selected : resolved.mediaReferences[selectKind].selected;
@@ -422,7 +436,7 @@ export function NodeComposer({
       if (file.current) file.current.value = "";
     }
   }
-  const pending = jobs.some((j) => j.status === "running"),
+  const pending = jobs.find((j) => j.status === "running"),
     latest = jobs[0];
   const runningLabel = /^正在(重试)?上传/.test(latest?.detail)
     ? latest.detail
@@ -467,8 +481,8 @@ export function NodeComposer({
           type="file"
           ref={file}
           hidden
-          accept={restoring ? "image/*" : generated ? "image/*,video/*,audio/*" : "image/*,video/*"}
-          multiple={generated}
+          accept={restoring || card ? "image/*" : generated ? "image/*,video/*,audio/*" : "image/*,video/*"}
+          multiple={generated && !card}
           onChange={(e) =>
             generated &&
             (kind === "image" || model?.workflow || e.target.files.length > 1)
@@ -483,7 +497,7 @@ export function NodeComposer({
             (inputs.upstream.length ? " · " + inputs.upstream.length : ""),
         )}
         {canCompare && <button type="button" onClick={() => setPreviewAsset(restoredAsset)}>
-          <Columns2 size={14} /> 对比原图
+          <Columns2 size={14} /> {upscalingVideo ? "对比原片" : "对比原图"}
         </button>}
         {kind === "image" &&
           !restoring &&
@@ -495,6 +509,11 @@ export function NodeComposer({
               <ScanLine size={14} /> 高清修复
             </button>
           )}
+        {kind === "image" && data.assetId && !card && engine?.imageModels?.some(m => m.id === characterCardId) && (
+          <button type="button" disabled={busy || pending} onClick={() =>
+            openLinkedMediaTool(node, { title: "角色卡", imageModel: characterCardId, canvasRef: id })
+          }><BookImage size={14} /> 制作角色卡</button>
+        )}
         {kind === "image" && poseSwap && !swapping && !restoring && (
           <button type="button" onClick={startPoseSwap} disabled={busy || pending || !!data.pendingCanvasJob}>
             <Shirt size={14} /> 姿势换装
@@ -503,32 +522,37 @@ export function NodeComposer({
         {kind === "video" && data.assetId && !upscalingVideo && (
           <button
             onClick={() => {
-              const preset = videos.find(m => m.id === videoUpscale2kId);
-              if (!preset || missingFiles(preset).length)
+              const preset = [videoUpscale2kId, videoUpscale4kId]
+                .map(id => videos.find(m => m.id === id))
+                .find(m => m && !missingFiles(m).length);
+              if (!preset)
                 return showError("当前环境缺少 RelayVSR 视频超分节点或模型，请检查「模型与工作流」。");
               showError("");
-              openRestoreNode(node);
+              openLinkedMediaTool(node, {
+                title: "视频高清修复", videoModel: preset.id,
+                videoRestoreSource: { nodeId: id, assetId: data.assetId },
+              });
             }}
             disabled={busy || pending || !!data.pendingCanvasJob}
           >
-            <ScanLine size={14} /> 放大到 2K
+            <ScanLine size={14} /> 高清修复
           </button>
         )}
-        {generated && !restoring && !upscalingVideo && !swapping && (
+        {generated && !restoring && !upscalingVideo && !swapping && !card && (
           <button onClick={() => menu("mark")} aria-expanded={panel === "mark"}>
             <MapPin size={14} />
             标记
           </button>
         )}
         {generated &&
-          !restoring && !upscalingVideo && !swapping &&
+          !restoring && !upscalingVideo && !swapping && !card &&
           toggle(
             "style",
             Palette,
             "风格" +
               (data.imageLoras?.length ? " · " + data.imageLoras.length : ""),
           )}
-        {!restoring && !upscalingVideo && !swapping && (!generated || model?.hasPrompt !== false) && (
+        {!restoring && !upscalingVideo && !swapping && !card && (!generated || model?.hasPrompt !== false) && (
           <button type="button" aria-haspopup="dialog" aria-expanded={panel === "prompts"}
             onClick={() => menu("prompts")}>
             <FileText size={14} />预设提示词
@@ -763,7 +787,7 @@ export function NodeComposer({
           }}
         />
       )}
-      {generated && model?.workflow && !restoring && !swapping && (
+      {generated && model?.workflow && !restoring && !swapping && !card && !upscalingVideo && (
         <div className="workflow-brief">
           <WorkflowIcon size={14} />
           <span>{continuingVideo ? "两段共用一张参考图" : workflowNeeds(model)}</span>
@@ -778,15 +802,46 @@ export function NodeComposer({
           source={resolved.selected.length === 1 ? resolved.selected[0] : null}
           size={restoreSize}
           original={originalRestore}
-          strength={originalRestore ? undefined : data.workflowValues?.[restoreStrengthKey] ??
-            (data.imageModel === relayRestoreModelId ? 1 : defaultRestoreStrength)}
+          secondPass={secondPass}
+          strength={workflowValue(strengthKey) ??
+            (secondPass ? defaultRedrawStrength : data.imageModel === relayRestoreModelId ? 1 : defaultRestoreStrength)}
           limit={restoreLimit}
           onSource={(canvasRef) => set({ canvasRef })}
           onSize={(size) => setWorkflowValue(restoreSizeKey, size)}
-          onStrength={(value) => setWorkflowValue(restoreStrengthKey, value)}
+          onStrength={(value) => setWorkflowValue(strengthKey, value)}
         />
       ) : upscalingVideo ? (
-        <div className="workflow-brief">{resolved.media?.video?.[0]?.name || "请选择一段源视频"} · 等比放大，保留原帧率和声音</div>
+        <div className="media-tool-fields">
+          <div className="tool-source"><strong>RelayVSR 二采放大</strong><small>{resolved.media?.video?.[0]?.name || "请上传或连接一段源视频"}</small></div>
+          <label>输出清晰度
+            <Select aria-label="输出清晰度" value={data.videoModel} disabled={!model || busy || pending} onValueChange={value => chooseModel(videos.find(m => m.id === value))}>
+              {videos.filter(m => isVideoUpscale(m.id)).map(m => (
+                <option key={m.id} value={m.id} disabled={m.outputSize?.some(v => v > maxSide) || !!missingFiles(m).length}>
+                  {m.id === videoUpscale4kId ? "4K · 长边 3840" : "2K · 长边 2560"}
+                </option>
+              ))}
+            </Select>
+          </label>
+        </div>
+      ) : card ? (
+        <div className="media-tool-fields">
+          <div className="tool-source">
+            {resolved.selected[0] && <button className="card-source-preview" aria-label="放大人物参考图" onClick={() => setPreviewAsset(resolved.selected[0].asset)}>
+              <img src={resolved.selected[0].asset.url} alt="人物参考图" />
+            </button>}
+            <strong>人物参考图</strong>
+            {resolved.refs.length > 1 || (resolved.refs.length && !resolved.selected.length) ? (
+              <Select aria-label="人物参考图" value={resolved.selected[0]?.id || ""} onValueChange={canvasRef => set({ canvasRef })}>
+                <option value="" disabled>选择人物</option>
+                {resolved.refs.map(ref => <option key={ref.id} value={ref.id}>{ref.title}</option>)}
+              </Select>
+            ) : <small>{resolved.selected[0]?.title || "上传或连接一张人物图"}</small>}
+          </div>
+          {model.id === characterCardId && <>
+            <label>角色名<input aria-label="角色名" placeholder="可留空" maxLength={80} value={workflowValue(characterNameKey) ?? ""} onChange={e => setWorkflowValue(characterNameKey, e.target.value)} /></label>
+            <label>剧名<input aria-label="剧名" placeholder="可留空" maxLength={80} value={workflowValue(characterTitleKey) ?? ""} onChange={e => setWorkflowValue(characterTitleKey, e.target.value)} /></label>
+          </>}
+        </div>
       ) : swapping ? (
         <PoseSwapEditor roles={resolved.roles} refs={resolved.refs}
           projectId={board.id} disabled={busy || pending} notes={data.text}
@@ -862,7 +917,8 @@ export function NodeComposer({
           <div className="generation-result-info">
             <span className="generation-status" aria-live="polite" title={latest.detail} data-status={latest.status}>
               {latest.status === "running"
-                ? runningLabel
+                ? queueLabel(latest) || runningLabel
+                : latest.status === "cancelled" ? "已取消生成"
                 : latest.status === "failed"
                   ? (latest.detail || "最近一次生成失败")
                   : result?.id && result.id === data.assetId
@@ -911,7 +967,7 @@ export function NodeComposer({
               }
               onChoose={chooseModel}
             />
-            {!restoring && (
+            {!restoring && !card && !upscalingVideo && (
               <button
                 ref={settingsTrigger}
                 className="settings-trigger"
@@ -935,12 +991,17 @@ export function NodeComposer({
               {kind === "video" && model && !upscalingVideo && !continuingVideo && (
                 <VideoDuration key={model.id} {...{ model, data, set }} />
               )}
-              <button
+              {pending ? <CancelGeneration key={pending.id} jobId={pending.id} className="solid run-node"
+                onError={showError} onCancelled={job => {
+                  showError("");
+                  setJobs(rows => rows.map(row => row.id === job.id ? job : row));
+                  poll(n => n + 1);
+                }} /> : <button
                 className="solid run-node"
                 title="生成到当前节点"
                 disabled={
                   busy ||
-                  pending ||
+                  !!data.pendingCanvasJob ||
                   !model ||
                   invalidSize ||
                   stale ||
@@ -948,27 +1009,25 @@ export function NodeComposer({
                   unsupportedRef ||
                   (model.hasPrompt !== false && !inputs.text.trim()) ||
                   waitingForRef ||
-                  (!swapping && model.needsImage && !inputs.reference)
+                  (!swapping && !card && model.needsImage && !inputs.reference)
                 }
                 onClick={generate}
               >
-                {pending || busy ? (
+                {busy || data.pendingCanvasJob ? (
                   <LoaderCircle size={15} className="generation-spin" />
                 ) : (
                   <ArrowUp size={15} />
                 )}
-                {pending
-                  ? "生成中"
-                  : busy
+                {busy || data.pendingCanvasJob
                     ? "处理中"
                     : restoring
                       ? "开始修复"
                       : kind === "image"
-                        ? "生成图片"
+                        ? (card ? "生成角色卡" : "生成图片")
                         : kind === "video"
-                          ? (upscalingVideo ? "开始放大" : "生成视频")
+                          ? (upscalingVideo ? "开始放大" : model?.id === h3VideoModelId ? "生成一采预览" : "生成视频")
                           : "生成音频"}
-              </button>
+              </button>}
             </div>
           </>
         ) : kind === "shot" ? (

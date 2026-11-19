@@ -86,8 +86,11 @@ test("按实际节点定义导入工作流，切换机器后原任务和凭据�
           let body = "";
           for await (const chunk of req) body += chunk;
           graphs.push(JSON.parse(body).prompt);
+          if (graphs.length === 2) return send({ prompt_id: prefix + "-2" });
           return send({ prompt_id: prefix });
         }
+        if (req.url === "/api/jobs/" + prefix + "-2/cancel" && req.method === "POST")
+          return send({ cancelled: true });
         if (req.url === "/history/" + prefix) {
           await gate;
           return send({
@@ -263,6 +266,19 @@ test("按实际节点定义导入工作流，切换机器后原任务和凭据�
       .find((m) => m.id === preset.id)
       ?.fields.some((f) => f.input === "weights"),
   );
+  const another = (await api(url + "/generate", "POST", params)).body.id;
+  for (let i = 0; first.graphs.length < 2 && i < 100; i++)
+    await new Promise(r => setTimeout(r, 10));
+  assert.equal(first.graphs.length, 2);
+  await switchTo(second, "B");
+  const stop = () => api("/jobs/" + another + "/cancel", "POST");
+  const stopped = await Promise.all([stop(), stop()]);
+  assert.ok(stopped.every(r => r.status === 200 && r.body.status === "cancelled"));
+  assert.equal((await stop()).body.status, "cancelled");
+  assert.equal((await api("/jobs/" + rows[0].id + "/cancel", "POST")).status, 409);
+  assert.equal(first.calls.filter(([u]) => u.endsWith("/first-2/cancel")).length, 1);
+  assert.ok(!second.calls.some(([u]) => u.endsWith("/cancel")));
+  assert.equal((await api(url + "/nodes/" + target.id + "/jobs")).body[0].assetId, null);
   await rm(dir, { recursive: true, force: true });
 });
 

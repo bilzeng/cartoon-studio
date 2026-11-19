@@ -1,9 +1,11 @@
+import { newStage } from "./director-stage.js";
 import { upstreamNodes } from "./canvasGroups.js";
 
 export const kinds = {
   script: "剧本",
   text: "文本",
   shot: "分镜",
+  stage: "导演台",
   image: "图片",
   video: "视频",
   audio: "音频",
@@ -55,6 +57,7 @@ export function makeNode(kind, position, data = {}) {
       text: "",
       duration: 3,
       assetId: "",
+      ...(kind === "stage" && !data.stage ? { stage: newStage() } : {}),
       ...data,
     },
   };

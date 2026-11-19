@@ -17,6 +17,7 @@
 ## 功能一览
 
 - **自由画布**　拖入图片，组织图像、视频和音频素材，拖动节点端口连线。在提示词中用 `@` 指定参考图。
+- **3D 导演台**　在画布底部点「＋ → 导演台」，再点节点上的「打开导演台」。可以摆放演员、设置机位和走位关键帧，把当前取景截图或预演视频接回画布。
 - **分镜与版本**　逐镜编辑运镜、对白和时长，跨集复用角色、场景和道具。每个镜头可独立返工，预览后再选用版本。
 - **图像与视频**　使用自定义像素尺寸、PoseSwap 姿势换装、RelayVSR 高清修复及 H3 两段续接。
 - **素材与成片**　给素材去重、打标签、收藏，从分镜台预览镜头顺序，导出带配乐的 MP4。
@@ -73,13 +74,15 @@ npm start
 
 从首页或画布右上角打开「ComfyUI 环境」，填写服务地址和可选的 Bearer 令牌，然后点「测试并切换」。同机服务通常使用 `http://127.0.0.1:8188`。支持保存多个环境，运行中的任务仍会从提交时选定的服务取回结果。
 
+视频节点的「H3 · 多参考图一采预览」先生成带声音的原生预览。选用满意的版本后，点「高清修复」，选择 2K 或 4K 并开始放大。
+
 在节点的「模型与工作流」查看当前环境可用的预设。仓库提供工作流定义，模型权重和自定义节点由 ComfyUI 环境管理。
 
 | 工作流 | 所需环境 |
 | --- | --- |
 | 常规生图与参考图编辑 | 支持对应模型加载与采样的 ComfyUI 环境。镜场可以发现 Krea2、Qwen Image 2.1、Z-Image Turbo 和兼容的 SD checkpoint。 |
 | PoseSwap 姿势与换装 | Qwen Image 2.1、配套的 Qwen3-VL 编码器和 VAE，以及 `TextEncodeQwenImage21` 等节点。环境同时提供 Qwen Image 2.1 BF16 和 PoseStudio V1.1 时，可使用姿态 LoRA。图片可上传，也可从画布选取。 |
-| RelayVSR 高清修复与 2K 视频超分 | 配置 RelayVSR 相关节点、×2 模型及配套 VAE。预设使用 `relayvsr_x2_lightx2v_int8_convrot.safetensors` 和 `relayvsr_flash_vae_x2_fp32.safetensors`。 |
+| RelayVSR 高清修复与 2K / 4K 视频二采 | 配置 RelayVSR 相关节点、×2 模型及配套 VAE。预设使用 `relayvsr_x2_lightx2v_int8_convrot.safetensors` 和 `relayvsr_flash_vae_x2_fp32.safetensors`。 |
 | MiniMax H3 与两段续接 | H3 模型、匹配的文本编码器、视频和音频 VAE。对应预设还需要 Pika Flex LoRA。两段续接使用 `AICG3D_H3*` 节点。 |
 
 预设缺少依赖时，打开该工作流的配置，核对当前环境已安装的节点和权重，并映射兼容的文件。大尺寸生成受模型和硬件限制。若 Apple Silicon 上的 MPS 在 VAE 解码阶段报张量尺寸错误，可先用较小尺寸生成，再使用超分流程；环境和预设支持时也可使用分块解码。

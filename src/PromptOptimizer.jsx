@@ -34,7 +34,7 @@ const fresh = (name = "DeepSeek") => ({
   model: "",
   key: "",
 });
-function useProfiles(reload) {
+export function useProfiles(reload) {
   const [profiles, setProfiles] = useState(null);
   const [loadError, setError] = useState("");
   useEffect(() => {

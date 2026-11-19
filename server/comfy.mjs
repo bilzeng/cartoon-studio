@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { makeId } from "../shared/studio.js";
 import { assetPath, fail, storeAsset } from "./storage.mjs";
-import { h3VideoReference } from "./render.mjs";
+import { h3VideoReference, restoreVideoAudio } from "./render.mjs";
 
 async function request(route, options = {}, allowMissing = false, timeout = 20000, stage = "连接 ComfyUI") {
   const base = currentUrl();
@@ -24,13 +24,14 @@ async function request(route, options = {}, allowMissing = false, timeout = 2000
       ...options,
       headers,
       redirect: "error",
-      signal: AbortSignal.timeout(timeout),
+      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
     });
   } catch (e) {
+    options.signal?.throwIfAborted();
     const detail = e.name === "TimeoutError" ? "超时（" + Math.round(timeout / 1000) + " 秒）" : "时连接中断";
     throw fail(stage + detail + "，请检查 ComfyUI 服务和网络连接", 503);
   }
-  if (allowMissing && response.status === 404) return null;
+  if (allowMissing && (response.status === 404 || (allowMissing === "cancel" && response.status === 405))) return null;
   if (!response.ok) {
     const result =
       route === "/prompt" ? await response.json().catch(() => null) : null;
@@ -48,6 +49,48 @@ async function request(route, options = {}, allowMissing = false, timeout = 2000
     );
   }
   return response;
+}
+export async function cancelComfyPrompt(id) {
+  if (!id) throw fail("ComfyUI 没有返回任务编号", 502);
+  const post = body => ({ method: "POST", body: JSON.stringify(body) });
+  const queue = async () => {
+    const state = await (await request("/queue")).json();
+    if (!Array.isArray(state.queue_running) || !Array.isArray(state.queue_pending))
+      throw fail("未能确认 ComfyUI 队列状态，请重试", 502);
+    return state;
+  };
+  const contains = rows => rows?.some(row => row[1] === id);
+  const finishedOrRemoved = async () => {
+    const history = await (await request("/history/" + encodeURIComponent(id))).json();
+    const item = history[id];
+    if (!item || item.status?.messages?.some(([type]) => type === "execution_interrupted")) return;
+    throw fail("任务已结束，请查看最新结果", 409);
+  };
+  const result = await request("/api/jobs/" + encodeURIComponent(id) + "/cancel", post({}), "cancel");
+  if (result) {
+    const { cancelled } = await result.json();
+    if (cancelled === true) return;
+    if (cancelled !== false) throw fail("ComfyUI 未确认取消，请重试", 502);
+    // The first cancellation may have succeeded before its response was lost.
+    const state = await queue();
+    if (contains(state.queue_running) || contains(state.queue_pending))
+      throw fail("任务仍在 ComfyUI 队列中，请重试", 409);
+    return finishedOrRemoved();
+  }
+  // Older ComfyUI versions only have queue deletion and a separate interrupt.
+  let state = await queue();
+  if (contains(state.queue_pending)) {
+    await request("/queue", post({ delete: [id] }));
+    state = await queue();
+    if (contains(state.queue_pending)) throw fail("任务仍在排队，请再试一次", 409);
+  }
+  if (!contains(state.queue_running)) return finishedOrRemoved();
+  const { version } = await testConnection();
+  const parts = /^(\d+)\.(\d+)\.(\d+)/.exec(version)?.slice(1).map(Number);
+  // v0.3.57 introduced prompt_id matching in the legacy /interrupt handler.
+  if (!parts || !(parts[0] > 0 || parts[1] > 3 || (parts[1] === 3 && parts[2] >= 57)))
+    throw fail("当前 ComfyUI 版本仅支持取消排队任务。升级后可单独停止执行中的任务", 409);
+  await request("/interrupt", post({ prompt_id: id }));
 }
 export async function testConnection() {
   const response = await request("/system_stats");
@@ -238,12 +281,13 @@ async function execute(graph, seed, progress, findOutput, trackSteps = false) {
   const watch = trackSteps ? watchExecution(currentUrl(), currentToken(), clientId, graph) : null;
   try {
     await watch?.ready;
-    const ticket = await (
+    const send = async () => (
       await request("/prompt", {
         method: "POST",
         body: JSON.stringify({ prompt: graph, client_id: clientId }),
       }, false, 20000, "提交工作流")
     ).json();
+    const ticket = await (progress.submit ? progress.submit(send) : send());
     if (!ticket.prompt_id) throw fail("ComfyUI 未接收任务", 502);
     watch?.bind(ticket.prompt_id);
     await progress(
@@ -257,12 +301,12 @@ async function execute(graph, seed, progress, findOutput, trackSteps = false) {
 }
 
 async function collectResult(promptId, watch, progress, findOutput) {
-  let lastStep, lastStream, executionObservedAt;
+  let lastStep, lastStream, executionObservedAt, lastQueuePosition;
   const deadline = Date.now() + 60 * 60 * 1000;
   let historyFailures = 0;
   let nextQueueCheck = 0;
   while (Date.now() < deadline) {
-    await sleep(2000);
+    await sleep(2000, undefined, { signal: progress.signal });
     const { stream, step } = watch?.read() || {};
     if (step !== lastStep || stream !== lastStream) {
       const update = { progressStream: stream };
@@ -278,7 +322,7 @@ async function collectResult(promptId, watch, progress, findOutput) {
     let history;
     try {
       history = await (
-        await request("/history/" + encodeURIComponent(promptId), {}, false, 20000, "查询生成进度")
+        await request("/history/" + encodeURIComponent(promptId), { signal: progress.signal }, false, 20000, "查询生成进度")
       ).json();
       historyFailures = 0;
     } catch (error) {
@@ -296,11 +340,20 @@ async function collectResult(promptId, watch, progress, findOutput) {
           executionObservedAt ??= new Date().toISOString();
           await progress("ComfyUI 正在执行", { phase: "executing", executionObservedAt });
         } else if (!queue) nextQueueCheck = Date.now() + 30000;
+        else {
+          const index = queue.queue_pending?.findIndex(row => row[1] === promptId) ?? -1;
+          if (index >= 0 && index + 1 !== lastQueuePosition) {
+            lastQueuePosition = index + 1;
+            await progress("已送入 ComfyUI 队列", { phase: "queued", remoteQueuePosition: lastQueuePosition });
+          }
+        }
       }
       continue;
     }
     const executionMs = executionDuration(item.status?.messages);
     const execution = executionMs === null ? {} : { executionMs };
+    if (item.status?.messages?.some(([type]) => type === "execution_interrupted"))
+      throw Object.assign(fail("已取消生成", 409), { code: "GENERATION_CANCELLED" });
     if (item.status?.status_str === "error") {
       const error = item.status?.messages?.find(
         ([type]) => type === "execution_error",
@@ -483,7 +536,7 @@ async function bindGraph(
         upload: { current: index + 1, total: usedSlots.length, updatedAt: new Date().toISOString() },
       });
       try {
-        const response = await request("/upload/image", { method: "POST", body: data }, false, timeout, stage);
+        const response = await request("/upload/image", { method: "POST", body: data, signal: progress?.signal }, false, timeout, stage);
         uploaded = await response.json();
         break;
       } catch (e) {
@@ -508,6 +561,7 @@ export async function generateVideo(
     asset,
     references,
     media,
+    sourceAudioAsset,
     prompt,
     assetTitle,
     seed,
@@ -552,7 +606,8 @@ export async function generateVideo(
         ? "webm"
         : null;
   if (!ext) throw fail("视频工作流需要输出 MP4、MOV 或 WebM");
-  return storeAsset(bytes, ext, "video", assetTitle + " · " + seed + "." + ext, { projectId, origin: "generated" });
+  const master = sourceAudioAsset ? await restoreVideoAudio(bytes, assetPath(sourceAudioAsset)) : bytes;
+  return storeAsset(master, ext, "video", assetTitle + " · " + seed + "." + ext, { projectId, origin: "generated" });
 }
 
 export async function generateAudio(

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { RestoreComparison, restoreOriginal } from "./RestoreComparison";
 import { AssetFileActions } from "./AssetFileActions";
 import {
+  Box,
   AtSign,
   Aperture,
   ArrowUpRight,
@@ -18,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 export const icons = {
+  stage: Box,
   script: ScrollText,
   text: FileText,
   shot: Clapperboard,
@@ -66,6 +68,11 @@ export function Media({ asset, controls = false, ...props }) {
 }
 export function AssetPreview({ asset, assets = [], projectId, label = asset.name, caption = label, close, insert }) {
   const original = restoreOriginal(asset, assets);
+  const videoCompare = original?.kind === "video";
+  const [controlsHost, setControlsHost] = useState(null);
+  const [startTime] = useState(() => videoCompare
+    ? Array.from(document.querySelectorAll(".flow-tile video[data-restored-video]"))
+        .find(video => video.dataset.restoredVideo === asset.id)?.currentTime : 0);
   const dialog = useRef(null);
   const stage = useRef(null);
   const pan = useRef(null);
@@ -91,6 +98,9 @@ export function AssetPreview({ asset, assets = [], projectId, label = asset.name
   }
   useLayoutEffect(() => {
     const el = dialog.current;
+    if (videoCompare) {
+      document.querySelectorAll(".flow-tile video[data-restored-video]").forEach(video => video.pause());
+    }
     el.showModal();
     return () => el.close();
   }, []);
@@ -110,10 +120,12 @@ export function AssetPreview({ asset, assets = [], projectId, label = asset.name
         <div ref={stage} className="restore-viewer-stage" data-actual={actualSize || undefined}
           onPointerDown={startPan} onPointerMove={movePan} onLostPointerCapture={() => { pan.current = null; }}>
           <div className="restore-viewer-mat" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
-            <RestoreComparison key={asset.id} original={original} restored={asset} expanded actualSize={actualSize} />
+            <RestoreComparison key={asset.id} original={original} restored={asset} expanded actualSize={actualSize}
+              controlsHost={controlsHost} startTime={startTime} />
           </div>
         </div>
       </> : <Media asset={asset} controls />}
+      {videoCompare && <div className="restore-viewer-transport" ref={setControlsHost} />}
       <div className="viewer-caption">
         <span title={caption}>{caption}</span>
         <AssetFileActions key={asset.id} asset={asset} projectId={projectId} />

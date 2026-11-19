@@ -42,6 +42,7 @@
 | --- | --- | --- |
 | [Node.js](https://github.com/nodejs/node) | 本地 JavaScript 运行时 | MIT · 含各自许可的第三方组件 |
 | [React](https://github.com/facebook/react) | `react` 和 `react-dom` 界面渲染 | MIT |
+| [Three.js](https://threejs.org/) | 导演台的三维场景、轨道视角与物体变换 | MIT |
 | [React Flow](https://github.com/xyflow/xyflow) | `@xyflow/react` 节点画布、连线和视口 | MIT |
 | [CodeMirror](https://codemirror.net/) | `autocomplete`、`commands`、`state` 和 `view` 支撑提示词编辑 | MIT |
 | [Lucide](https://github.com/lucide-icons/lucide) | `lucide-react` 提供界面图标 | ISC |
@@ -53,3 +54,7 @@
 | [Playwright](https://github.com/microsoft/playwright) | 浏览器交互回归测试 | Apache-2.0 |
 
 文档徽章由 [Shields.io](https://shields.io/) 提供。
+
+## 导演台预演视频
+
+浏览器端通过 [h264-mp4-encoder 1.0.12](https://github.com/TrevorSundberg/h264-mp4-encoder/tree/6d177fd043157606224cef4702e134dd31f6adfa) 编码 MP4。[MIT 许可](public/licenses/h264-mp4-encoder.txt)。其 WebAssembly 包使用公共领域的 [minih264](https://github.com/lieff/minih264) 和 MPL 1.1 的 libmp4v2，组件源码可从[上游源码及子模块](https://github.com/TrevorSundberg/h264-mp4-encoder)取得。

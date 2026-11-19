@@ -202,6 +202,7 @@ test("删除、撤销和确认删除保持相机位置，画布手势不会放�
   await page.route(imagePath + "/nodes/*/jobs*", (r) =>
     r.fulfill({ json: job ? [job] : [] }),
   );
+  await page.route("**/api/jobs?*ids=*", r => r.fulfill({ json: job ? [job] : [] }));
   await page.goto(base + "#project/" + imageProject.id + "?node=" + image.id);
   const tileFace = page.locator(".flow-tile-face");
   const tileImage = tileFace.locator("img");

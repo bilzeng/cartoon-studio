@@ -1,13 +1,15 @@
 import React from "react";
 import { Select } from "./Select";
+import { maxRedrawStrength } from "../shared/image-restore";
 
-export function ImageRestore({ refs, source, onSource, size, limit, onSize, strength, onStrength, original }) {
+export function ImageRestore({ refs, source, onSource, size, limit, onSize, strength, onStrength, original, secondPass }) {
   const percent = Math.round(strength * 100);
+  const strengthLabel = secondPass ? "重绘强度" : "细节增强";
   return (
     <div className="image-restore">
       {source?.asset && <img src={source.asset.url} alt="待修复原图" />}
       <div>
-        <strong>{original ? "RelayVSR ×2 原流程" : "高清修复"}</strong>
+        <strong>{secondPass ? "二采放大 · Krea2" : original ? "RelayVSR ×2 原流程" : "高清修复"}</strong>
         {refs.length > 1 || (!source && refs.length > 0) ? (
           <Select
             aria-label="修复原图"
@@ -44,15 +46,15 @@ export function ImageRestore({ refs, source, onSource, size, limit, onSize, stre
         </span>
       </label>
       {!original && <label className="restore-strength">
-        <span>细节增强 <output>{percent}%</output></span>
+        <span>{strengthLabel} <output>{percent}%</output></span>
         <input
           type="range"
-          aria-label="细节增强"
+          aria-label={strengthLabel}
           aria-valuetext={percent + "%"}
-          min="0" max="100" step="1" value={percent}
+          min="0" max={secondPass ? Math.round(maxRedrawStrength * 100) : 100} step="1" value={percent}
           onChange={(e) => onStrength(Number(e.target.value) / 100)}
         />
-        <span className="restore-range-labels"><span>原图放大</span><span>强增强</span></span>
+        <span className="restore-range-labels"><span>原图放大</span><span>{secondPass ? "更多重绘" : "强增强"}</span></span>
       </label>}
     </div>
   );

@@ -74,3 +74,13 @@ test("旧作品按项目名归档，共享引用、同名文件、重命名与�
   assert.ok(!(await readdir(projects)).includes("one.json"));
   assert.equal(JSON.parse(await contents("新_灯塔", "画布.json")).revision, 5);
 });
+
+test("异步修改记录会等待结果，缺少返回值时保留原文件", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "studio-records-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "records.json");
+  const { editJson } = await import("../server/files.mjs");
+  await editJson(file, [], async (items) => [...items, "保留"]);
+  await assert.rejects(editJson(file, [], async () => {}), /缺少返回值/);
+  assert.deepEqual(JSON.parse(await readFile(file, "utf8")), ["保留"]);
+});

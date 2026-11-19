@@ -400,7 +400,7 @@ export function App() {
             {route === "jobs" && (
               <>
                 <h1>任务记录</h1>
-                <Jobs rows={jobs} assets={assets} />
+                <Jobs rows={jobs} assets={assets} refresh={refresh} notify={notify} />
               </>
             )}
             {route === "samples" && (

@@ -87,8 +87,10 @@ test("整批导入标签，逐项修正自动标签，重复打开及跨素材�
   await custom.fill("补拍");
   await choose("选择文件", [["改名的灯塔.jpg", 0], ["新画面.jpg", 3], ["新画面的副本.jpg", 3]]);
   await page.getByText("已导入 1 个素材，跳过 2 个重复文件", { exact: true }).waitFor();
+  const imported = page.getByRole("checkbox", { name: "选择 新画面.jpg" });
+  await imported.waitFor();
+  assert.ok(await imported.isChecked());
   assert.equal(await page.locator(".asset-grid input:checked").count(), 1);
-  assert.ok(await page.getByRole("checkbox", { name: "选择 新画面.jpg" }).isChecked());
   await choose("导入素材", [["又改名了.jpg", 3]]);
   await page.getByText("素材已存在：新画面.jpg", { exact: true }).waitFor();
   const afterImport = await catalog();

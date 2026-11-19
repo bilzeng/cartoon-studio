@@ -22,12 +22,6 @@ export function videoStyleFiles(files, family) {
 
 function h3Model(file, inventory) {
   const graph = structuredClone(source.graph);
-  // Base models generate at native resolution. The separate 2K preset adds RelayVSR.
-  for (const id of Object.keys(graph)) if (+id >= 200) delete graph[id];
-  graph.out = structuredClone(source.graph["214"]);
-  graph.out.inputs.video = ["130", 0];
-  graph.out.inputs.filename_prefix = "CartoonStudio/H3";
-  graph.out._meta = { title: "保存原生分辨率 MP4" };
   const clip = find(
     inventory.text_encoders,
     /qwen3vl[_-]32b[_-]minimax[_-]h3/i,
@@ -65,7 +59,6 @@ function h3Model(file, inventory) {
     graph,
     bindings: {
       ...source.bindings,
-      output: "out",
       fixedSeeds: false,
       outputSize: [1344, 768],
       mentionPattern: firstFrame ? "图{n}" : "<Picture {n}>",
@@ -119,7 +112,7 @@ function wanModel(file, inventory) {
     }),
     decode: node("VAEDecode", { samples: ["sample", 0], vae: ["vae", 0] }),
     video: node("CreateVideo", { images: ["decode", 0], fps: 24 }),
-    out: structuredClone(source.graph["214"]),
+    out: structuredClone(source.graph[source.bindings.output]),
   };
   graph.out.inputs.video = ["video", 0];
   graph.out.inputs.filename_prefix = "CartoonStudio/Wan22";

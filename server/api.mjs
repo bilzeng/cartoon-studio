@@ -1,5 +1,6 @@
+import { isCharacterCard } from "../shared/character-card.js";
 import { jobTimes } from "../shared/job-timing.js";
-import { executionEstimate } from "./generation-timing.mjs";
+import { registerDirectorScene } from "./director-scene.mjs";
 import { registerOptimizer } from "./prompt-optimizer.mjs";
 import { optimizationContext, effectivePrompt } from "../shared/prompt-optimizer.js";
 import { spawn } from "node:child_process";
@@ -8,10 +9,9 @@ import { findBoard, listBoardFiles, locateAssetFile, organizeWorkspace } from ".
 import { assetCatalog } from "./asset-library.mjs";
 import { updateTags } from "../shared/asset-tags.js";
 import { settings, changeSettings, mediaDir, projectsDir } from "./files.mjs";
-import { hostname } from "node:os";
 import { editorGraph, editorNodes } from "./editor-workflow.mjs";
-import { outputSize, sizeError } from "../shared/generation-size.js";
-import { isImageRestoreModel, relayOriginalRestoreModelId, relayRestoreModelId } from "../shared/image-restore.js";
+import { isVideoUpscale, outputSize, sizeError, videoUpscale4kId } from "../shared/generation-size.js";
+import { isImageRestoreModel, relayOriginalRestoreModelId, relayRestoreModelId, secondPassRestoreId } from "../shared/image-restore.js";
 import { h3ContinuationFields, h3ContinuationModelId } from "../shared/h3-video.js";
 import { poseOutfitGalleryTag, poseSwapModelId } from "../shared/pose-swap.js";
 import { bindPoseSwap } from "./presets/pose-swap.mjs";
@@ -55,16 +55,15 @@ import {
   allAssets,
   assetPath,
   fail,
-  now,
   readProject,
   listProjects,
   saveProject,
   jobs,
-  changeJobs,
   storeAsset,
   validateBoard,
 } from "./storage.mjs";
-import { exportPlan, renderFilm } from "./render.mjs";
+import { enqueue, cancelJob, scheduleJobs } from "./generation-queue.mjs";
+import { exportPlan } from "./render.mjs";
 import {
   customWorkflow,
   loraPreview,
@@ -74,9 +73,6 @@ import {
   definitionsFor,
   nodeInfo,
   testConnection,
-  generateImage,
-  generateAudio,
-  generateVideo,
   models,
   videoConfig,
   discoverSplit,
@@ -121,53 +117,6 @@ function sniff(b) {
   throw fail("支持图片、MP4/MOV/WebM 视频及 WAV、MP3、M4A、FLAC、OGG 音频");
 }
 
-async function enqueue(project, type, description, run, { take, nodeId, modelId, inputAssets = [] } = {}) {
-  const id = makeId();
-  await changeJobs((items) => {
-    if (items.filter((j) => j.status === "running").length >= 2)
-      throw fail("当前有两个任务正在执行，请稍后再试", 429);
-    items.unshift({
-      id,
-      project,
-      type,
-      status: "running",
-      detail: description,
-      assetId: null,
-      inputAssetIds: [...new Set(inputAssets.map(a => a.id))],
-      created: now(),
-      nodeId,
-      modelId,
-      shotId: take?.shotId,
-      snapshot: take,
-      owner: { pid: process.pid, host: hostname() },
-    });
-  });
-  const update = (status, detail, assetId, timing) =>
-    changeJobs((items) => {
-      const job = items.find((j) => j.id === id);
-      if (!job || job.status !== "running") return;
-      if (timing?.workloadKey) Object.assign(job, executionEstimate(items, timing.workloadKey));
-      Object.assign(job, timing, { status, detail, assetId });
-      if (status !== "running") job.finishedAt = now();
-    });
-  Promise.resolve()
-    .then(() => run((detail, timing) => update("running", detail, null, timing)))
-    .then((asset) => update("done", description, asset.id))
-    .catch((err) =>
-      update(
-        "failed",
-        err.code === "ENOENT"
-          ? "找不到 FFmpeg，请安装并加入 PATH"
-          : err.status
-            ? err.message
-            : "处理失败，请检查素材是否可播放以及 FFmpeg 编码器是否可用",
-        null,
-      ),
-    )
-    .catch(() => console.error("生成记录写入本地目录失败"));
-  return { id };
-}
-
 async function openFolder(dir, file) {
   const cmd = process.platform === "win32" ? "explorer.exe" : process.platform === "darwin" ? "open" : "xdg-open";
   const args = file && process.platform === "darwin" ? ["-R", file]
@@ -184,6 +133,7 @@ async function openFolder(dir, file) {
 }
 
 export function studioApi() {
+  scheduleJobs();
   const app = express();
   app.disable("x-powered-by");
   app.use((req, res, next) => {
@@ -213,6 +163,7 @@ export function studioApi() {
   app.use("/api", api);
   api.use(express.json({ limit: "4mb" }));
   registerOptimizer(api);
+  registerDirectorScene(api);
   api.get("/projects", async (_req, res) => {
     res.json(await listProjects());
   });
@@ -259,11 +210,13 @@ export function studioApi() {
     const [assets, history] = await Promise.all([allAssets(), jobs()]);
     const originals = new Map();
     for (const job of history) {
-      if (job.type !== "image" || job.status !== "done" || !job.assetId || job.inputAssetIds?.length !== 1) continue;
+      if (job.status !== "done" || !job.assetId || job.inputAssetIds?.length !== 1) continue;
       // Earlier restore jobs saved their preset description and input, but no model ID.
-      const restored = job.modelId ? isImageRestoreModel(job.modelId)
-        : /^高清修复 · 细节增强 \d+% · 长边 \d+ px$/.test(job.detail);
-      if (restored) originals.set(job.assetId, job.inputAssetIds[0]);
+      const imageRestore = job.type === "image" && (job.modelId ? isImageRestoreModel(job.modelId)
+        : /^高清修复 · 细节增强 \d+% · 长边 \d+ px$/.test(job.detail));
+      const videoRestore = job.type === "video" && (job.modelId ? isVideoUpscale(job.modelId)
+        : /^视频高清修复 · RelayVSR 二采 (2K|4K)(?: · |$)/.test(job.detail));
+      if (imageRestore || videoRestore) originals.set(job.assetId, job.inputAssetIds[0]);
     }
     res.json(assets.map(a => originals.has(a.id) ? { ...a, restoreSourceId: originals.get(a.id) } : a));
   });
@@ -613,16 +566,16 @@ export function studioApi() {
       res.json({ online: false, checkpoints: [], message: e.message });
     }
   });
-  function publicJob({ owner, snapshot, workloadKey, inputAssetIds, ...job }) {
+  function publicJob({ owner, snapshot, workloadKey, inputAssetIds, payload, environment, ...job }) {
     return { ...job, ...jobTimes(job) };
   }
+  api.post("/jobs/:id/cancel", async (req, res) => {
+    res.json(publicJob(await cancelJob(req.params.id)));
+  });
   api.get("/jobs", async (req, res) => {
-    res.json(
-      (await jobs())
-        .filter((j) => !req.query.project || j.project === req.query.project)
-        .slice(0, 100)
-        .map(publicJob),
-    );
+    const ids = typeof req.query.ids === "string" ? new Set(req.query.ids.split(",")) : null;
+    const rows = (await jobs()).filter(j => !req.query.project || j.project === req.query.project);
+    res.json(rows.filter((j, i) => ids ? ids.has(j.id) : i < 100 || j.status === "running").map(publicJob));
   });
   api.get("/projects/:id/nodes/:nodeId/jobs", async (req, res) => {
     const board = await readProject(req.params.id);
@@ -661,7 +614,7 @@ export function studioApi() {
           board.id,
           "export",
           board.name + " · 720p MP4",
-          (update) => renderFilm(plan, update, board.id),
+          plan,
           { inputAssets: plan.frames.map(f => f.asset).concat(plan.audio || []) },
         ),
       );
@@ -703,7 +656,7 @@ export function studioApi() {
     const assets = await allAssets();
     const inputs = canvasNode && canvasInputs(board, canvasNode, assets);
     const shotPrompt =
-      restoring
+      restoring || isCharacterCard(selectedId)
         ? ""
         : inputs
           ? inputs.text
@@ -723,7 +676,7 @@ export function studioApi() {
     if (typeof shotCast !== "string" || shotCast.length > 1500)
       throw fail("本镜出场角色最多 1500 字");
     let prompt =
-      restoring
+      restoring || isCharacterCard(selectedId)
         ? ""
         : shot
           ? composeShot(board, shot.data, kind)
@@ -820,18 +773,14 @@ export function studioApi() {
           board.id,
           kind,
           preset.name,
-          (progress) =>
-            generateAudio(
-              {
-                projectId: board.id,
-                config,
-                media: presetInputs.media,
-                prompt: generationPrompt(descriptor, presetInputs),
-                seed,
-                assetTitle,
-              },
-              progress,
-            ),
+          {
+            projectId: board.id,
+            config,
+            media: presetInputs.media,
+            prompt: generationPrompt(descriptor, presetInputs),
+            seed,
+            assetTitle,
+          },
           { nodeId, inputAssets: Object.values(presetInputs.media).flat() },
         ),
       );
@@ -876,7 +825,10 @@ export function studioApi() {
         throw fail("请选择参考图");
       if (shot && req.body.assetId && !config.needsImage)
         throw fail("当前视频工作流不接受该参考图");
-      const description = selectedId === h3ContinuationModelId
+      const upscaleGrade = isVideoUpscale(selectedId) ? (selectedId === videoUpscale4kId ? "4K" : "2K") : "";
+      const description = upscaleGrade
+        ? [descriptor.name, presetInputs.media.video[0]?.name].filter(Boolean).join(" · ")
+        : selectedId === h3ContinuationModelId
         ? descriptor.name + " · Seed " + seed + "\n第一段\n" + prompt +
           "\n第二段\n" + presetInputs.secondPrompt
         : "视频工作流 · Seed " + seed + " · " + prompt;
@@ -885,24 +837,21 @@ export function studioApi() {
           board.id,
           "video",
           description,
-          (update) =>
-            generateVideo(
-              {
-                projectId: board.id,
-                config,
-                asset,
-                references: resolved?.selected.map((r) => r.asset),
-                media: presetInputs?.media,
-                prompt,
-                assetTitle,
-                seed,
-                ratio,
-                duration,
-                dimensions,
-              },
-              update,
-            ),
-          { nodeId, take: snapshot(descriptor?.name || config.name, asset?.id),
+          {
+            projectId: board.id,
+            config,
+            asset,
+            references: resolved?.selected.map((r) => r.asset),
+            media: presetInputs?.media,
+            sourceAudioAsset: upscaleGrade ? presetInputs.media.video[0] : undefined,
+            prompt,
+            assetTitle: upscaleGrade ? assetTitle + " · " + upscaleGrade : assetTitle,
+            seed,
+            ratio,
+            duration,
+            dimensions,
+          },
+          { nodeId, modelId: selectedId, take: snapshot(descriptor?.name || config.name, asset?.id),
             inputAssets: presetInputs ? Object.values(presetInputs.media).flat() :
               (resolved?.selected.map(r => r.asset) || (asset ? [asset] : [])) },
         ),
@@ -936,7 +885,7 @@ export function studioApi() {
       config = bindPoseSwap(config, presetInputs.roles, presetInputs.prompt, descriptor.poseSwapProfile);
     }
     const accepts = config?.needsImage || imageModel?.reference;
-    if (!swapping && inputs?.awaitingImage && accepts)
+    if (!swapping && !isCharacterCard(selectedId) && inputs?.awaitingImage && accepts)
       throw fail("请先完成上游图片或选择仅使用文字");
     let references = [];
     if (canvasNode) {
@@ -971,7 +920,9 @@ export function studioApi() {
     let restoreLabel = "";
     if (restoring) {
       const sizeLabel = "长边 " + config.graph.size.inputs.largest_size + " px";
-      if (selectedId === relayOriginalRestoreModelId) {
+      if (selectedId === secondPassRestoreId) {
+        restoreLabel = "二采放大 · 重绘 " + Math.round(config.graph.sample.inputs.denoise * 100) + "% · " + sizeLabel;
+      } else if (selectedId === relayOriginalRestoreModelId) {
         restoreLabel = descriptor.name + " · " + sizeLabel;
       } else {
         const algorithm = selectedId === relayRestoreModelId ? "RelayVSR · " : "";
@@ -984,25 +935,21 @@ export function studioApi() {
         board.id,
         "image",
         restoreLabel || (swapping ? descriptor.name : checkpoint) + " · Seed " + seed + " · " + prompt,
-        (update) =>
-          generateImage(
-            {
-              projectId: board.id,
-              checkpoint,
-              prompt,
-              assetTitle: restoreLabel || assetTitle,
-              seed,
-              imageModel,
-              options,
-              references,
-              media: presetInputs?.media,
-              config,
-              ratio,
-              dimensions,
-              asset,
-            },
-            update,
-          ),
+        {
+          projectId: board.id,
+          checkpoint,
+          prompt,
+          assetTitle: restoreLabel || assetTitle,
+          seed,
+          imageModel,
+          options,
+          references,
+          media: presetInputs?.media,
+          config,
+          ratio,
+          dimensions,
+          asset,
+        },
         { nodeId, modelId: checkpoint, take: snapshot(checkpoint, asset?.id),
           inputAssets: presetInputs ? Object.values(presetInputs.media).flat() : references },
       ),

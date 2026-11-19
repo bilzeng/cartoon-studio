@@ -538,7 +538,7 @@ export function TakeHistory({ board, shot, assets, refresh, close, adopt }) {
               </details>
               {j.status !== "done" && (
                 <p role="status">
-                  {j.status === "failed" ? "失败" : "处理中"} · {j.detail}
+                  {j.status === "cancelled" ? "已取消" : j.status === "failed" ? "失败" : "处理中"} · {j.detail}
                 </p>
               )}
             </div>

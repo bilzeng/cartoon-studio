@@ -1,14 +1,17 @@
 import React, { useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { RestoreVideo } from "./RestoreVideo";
 
 import "./restore-comparison.css";
 
 export function restoreOriginal(asset, assets) {
-  return asset?.restoreSourceId && assets.find(item => item.id === asset.restoreSourceId && item.kind === "image");
+  return asset?.restoreSourceId && assets.find(item => item.id === asset.restoreSourceId && item.kind === asset.kind);
 }
 
-export function RestoreComparison({ original, restored, expanded = false, actualSize = false }) {
-  const [split, setSplit] = useState(expanded ? 50 : 72);
+export function RestoreComparison({ original, restored, expanded = false, actualSize = false, controls = expanded, controlsHost, startTime }) {
+  const video = restored.kind === "video";
+  const [split, setSplit] = useState(expanded || video ? 50 : 72);
+  const [ratio, setRatio] = useState(16 / 9);
   const [ready, setReady] = useState(false);
   const frame = useRef(null);
   const drag = useRef(null);
@@ -44,11 +47,16 @@ export function RestoreComparison({ original, restored, expanded = false, actual
   }
 
   return (
-    <div ref={frame} className="restore-comparison" data-expanded={expanded || undefined} data-scrub={wholeImage || undefined} style={{ "--split": split + "%" }}>
+    <div ref={frame} className="restore-comparison" data-expanded={expanded || undefined} data-scrub={wholeImage || undefined}
+      data-video={video || undefined} data-controls={video && controls || undefined} data-ready={ready || undefined}
+      style={{ "--split": split + "%", "--video-ratio": ratio }}>
+      {video ? <RestoreVideo {...{ original, restored, controls, controlsHost, expanded, startTime }}
+        onReady={setReady} onRatio={setRatio} /> : <>
       <img src={restored.url} alt={restored.name} draggable={false} />
       <img className="restore-original" src={original.url} alt="修复前的原图" draggable={false}
         style={{ visibility: ready ? "visible" : "hidden" }}
         onLoad={() => setReady(true)} onError={() => setReady(false)} />
+      </>}
       {ready && <>
         {split >= 18 && <span className="restore-caption after" aria-hidden="true">修复后</span>}
         {split <= 82 && <span className="restore-caption before" aria-hidden="true">修复前</span>}

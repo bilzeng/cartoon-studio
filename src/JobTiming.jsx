@@ -73,6 +73,7 @@ export function JobTiming({ job, showSteps = false }) {
   }, [running]);
 
   if (!job) return null;
+  showSteps = showSteps && job.phase !== "waiting";
   const { elapsedMs, estimatedRemainingMs } = jobTimes(job);
   const parts = [];
   if (elapsedMs !== null)

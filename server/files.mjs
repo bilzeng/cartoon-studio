@@ -65,7 +65,8 @@ export async function withFileLock(file, operation) {
 
 export function editJson(file, fallback, change) {
   return withFileLock(file, async () => {
-    const next = change(await readJson(file, fallback));
+    const next = await change(await readJson(file, fallback));
+    if (next === undefined) throw new TypeError("JSON 更新缺少返回值");
     await atomicWrite(file, JSON.stringify(next, null, 2) + "\n");
     return next;
   });

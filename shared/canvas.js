@@ -4,6 +4,8 @@ import {
 } from "./h3-video.js";
 import { isImageRestoreModel } from "./image-restore.js";
 import { poseOutfitGalleryTag, poseSwapModelId, poseSwapRoles } from "./pose-swap.js";
+import { isVideoUpscale } from "./generation-size.js";
+import { isCharacterCard } from "./character-card.js";
 import { makeNode } from "./studio.js";
 
 import { canvasGroups, removeCanvasNodes, upstreamNodes } from "./canvasGroups.js";
@@ -15,7 +17,7 @@ export function canvasInputs(board, node, assets) {
   );
   const guides = upstream.filter(
     (n) =>
-      ["image", "shot"].includes(n.data.kind) && images.has(n.data.assetId),
+      ["image", "shot", "stage"].includes(n.data.kind) && images.has(n.data.assetId),
   );
   const chosen = node.data.canvasRef;
   const reference =
@@ -349,6 +351,17 @@ export function canvasMediaRefs(resolved, inputs, data, assets) {
 }
 
 export function resolveWorkflowInputs(inputs, node, assets, model) {
+  if (isCharacterCard(model.id)) {
+    const { refs, sourceIds } = imageReferences(inputs, node, assets);
+    const choice = node.data.canvasRef;
+    const person = choice && choice !== "none" ? refs.find(ref => ref.id === choice)
+      : refs.length === 1 ? refs[0] : undefined;
+    return {
+      refs, sourceIds, selected: person ? [person] : [], prompt: "",
+      error: person ? "" : refs.length ? "请选择制作角色卡的人物参考图" : "请上传或连接一张人物参考图",
+      media: { image: person ? [person.asset] : [], video: [], audio: [] },
+    };
+  }
   if (model.id === poseSwapModelId) {
     const { refs, sourceIds } = imageReferences(inputs, node, assets);
     const chosen = node.data.poseSwapRefs || {};
@@ -444,6 +457,15 @@ export function resolveWorkflowInputs(inputs, node, assets, model) {
     resolved.prompt = [...inputs.speech, description.trim()]
       .filter(Boolean)
       .join("\n");
+  }
+  // A repair node captures the take approved at creation, even if its
+  // upstream node later adopts a different generation.
+  const pinned = node.data.videoRestoreSource;
+  if (isVideoUpscale(model.id) && pinned && mediaReferences.video.selected.length === 1 &&
+      mediaReferences.video.selected[0].id === pinned.nodeId) {
+    const original = assets.find(a => a.id === pinned.assetId && a.kind === "video");
+    if (original) media.video = [original];
+    else resolved.error = "选用的一采视频已移除，请从成片重新创建高清修复节点";
   }
   if (model.id === h3ContinuationModelId) {
     const second = h3ContinuationPrompt(

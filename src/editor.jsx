@@ -73,7 +73,7 @@ function Workspace({ route, assets, refresh, notify, home }) {
     id = path.slice(8),
     kind = new URLSearchParams(query).get("add");
   const { board, edit, flush, status, error } = useBoard(id, kind, notify);
-  useCanvasResults(board, edit, refresh);
+  const queueLabels = useCanvasResults(board, edit, refresh);
   const [engineType, setEngineType] = useState("image"),
     [reference, setReference] = useState("");
   const [draftSeries, setDraftSeries] = useState(defaultSeries),
@@ -477,6 +477,7 @@ function Workspace({ route, assets, refresh, notify, home }) {
         <div className="board-area" ref={area}>
           {mode === "canvas" ? (
             <FlowCanvas
+              queueLabels={queueLabels}
               initialPreviewId={new URLSearchParams(query).get("view") === "compare" ? node?.data.assetId : null}
               {...{
                 board,
@@ -893,6 +894,8 @@ function Workspace({ route, assets, refresh, notify, home }) {
         <Modal title="项目任务" close={() => setModal("")}>
           <Jobs
             rows={jobs}
+            refresh={refreshJobs}
+            notify={notify}
             assets={assets}
             onUse={(a) => add(a.kind, a)}
             onTake={safe(useTake)}
