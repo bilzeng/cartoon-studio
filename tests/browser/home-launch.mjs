@@ -1,0 +1,52 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { chromium } from "playwright";
+import { createServer } from "vite";
+
+test("首页新建入口保持整行宽度，支持动效、键盘和减少动态效果", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "studio-home-"));
+  process.env.STUDIO_DATA_DIR = dir;
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const vite = await createServer({ server: { port: 0, hmr: false }, logLevel: "error" });
+  await vite.listen();
+  t.after(() => vite.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.goto(vite.resolvedUrls.local[0] + "#home");
+  const launch = page.getByRole("button", { name: "新建画布创作", exact: true });
+  const tools = page.getByRole("heading", { name: "创作工具" });
+  for (const width of [1512, 390]) {
+    await page.setViewportSize({ width, height: 820 });
+    const banner = await launch.boundingBox();
+    const section = await page.locator(".shortcuts").boundingBox();
+    assert.equal(banner.width, section.width);
+    assert.ok(banner.y + banner.height <= (await tools.boundingBox()).y);
+    assert.ok(banner.height >= 140);
+  }
+  await page.setViewportSize({ width: 1512, height: 820 });
+  const dots = launch.locator(".launch-dots");
+  const ripple = () => dots.evaluate(el => getComputedStyle(el, "::before").animationName);
+  assert.notEqual(await ripple(), "none");
+  await launch.hover({ position: { x: 80, y: 40 } });
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".launch-spot")).opacity === "1");
+  await launch.hover({ position: { x: 300, y: 90 } });
+  const spotX = await launch.evaluate(el => parseFloat(el.style.getPropertyValue("--spot-x")));
+  assert.ok(Math.abs(spotX - 300) < 1);
+  await launch.click({ position: { x: 30, y: 30 } });
+  const name = page.getByRole("textbox", { name: "项目名称" });
+  await name.waitFor();
+  await page.keyboard.press("Escape");
+  await name.waitFor({ state: "detached" });
+  assert.ok(await launch.evaluate(el => el === document.activeElement));
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(await ripple(), "none");
+  await page.waitForFunction(() => getComputedStyle(document.querySelector(".launch-plus")).transform === "none");
+  await page.keyboard.press("Enter");
+  await name.fill("首页画布");
+  await name.press("Enter");
+  await page.waitForURL("**/#project/**");
+});

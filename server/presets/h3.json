@@ -1,0 +1,593 @@
+{
+  "119": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_int8_convrot.safetensors"
+    },
+    "_meta": {
+      "title": "视频VAE：参考图编码／画面解码"
+    }
+  },
+  "120": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "_meta": {
+      "title": "音频VAE：声音编码与解码"
+    }
+  },
+  "121": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "125",
+        0
+      ],
+      "vae": [
+        "120",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "将生成结果解码为声音"
+    }
+  },
+  "122": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "125",
+        0
+      ],
+      "vae": [
+        "119",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "将生成结果解码为画面"
+    }
+  },
+  "123": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "res_multistep"
+    },
+    "_meta": {
+      "title": "H3采样算法（默认 res_multistep）"
+    }
+  },
+  "124": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "scheduler": "simple",
+      "steps": [
+        "149",
+        1
+      ],
+      "denoise": 1,
+      "model": [
+        "141",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "采样步数：跟随速度档自动切换"
+    }
+  },
+  "125": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "129",
+        0
+      ],
+      "guider": [
+        "126",
+        0
+      ],
+      "sampler": [
+        "123",
+        0
+      ],
+      "sigmas": [
+        "124",
+        0
+      ],
+      "latent_image": [
+        "136",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "H3主采样：生成动作与声音"
+    }
+  },
+  "126": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "141",
+        0
+      ],
+      "conditioning": [
+        "136",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "提示词引导"
+    }
+  },
+  "127": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "Minimax-h3_Singularity_ref2va_v2_pruned_int8.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "主模型：Singularity V2（视频与声音生成）"
+    }
+  },
+  "128": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "Qwen3-VL：理解文字与参考图片"
+    }
+  },
+  "129": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 26112027
+    },
+    "_meta": {
+      "title": "随机种子（固定参数可复现）"
+    }
+  },
+  "130": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 24,
+      "bit_depth": 8,
+      "color_space": "sRGB",
+      "chroma_subsampling": "auto",
+      "codec": "none",
+      "images": [
+        "122",
+        0
+      ],
+      "audio": [
+        "121",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "合成原生视频：24帧／秒＋声音"
+    }
+  },
+  "136": {
+    "class_type": "MiniMaxH3ReferenceToVideo",
+    "inputs": {
+      "prompt": [
+        "138",
+        0
+      ],
+      "width": [
+        "161",
+        1
+      ],
+      "height": [
+        "162",
+        1
+      ],
+      "length": [
+        "166",
+        1
+      ],
+      "ref_image_size": "match",
+      "clip": [
+        "128",
+        0
+      ],
+      "vae": [
+        "119",
+        0
+      ],
+      "audio_vae": [
+        "120",
+        0
+      ],
+      "ref_images.ref_image_0": [
+        "137",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "汇总参考素材、提示词、尺寸与时长"
+    }
+  },
+  "137": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "参考图.png"
+    },
+    "_meta": {
+      "title": "上传人物／场景参考图"
+    }
+  },
+  "138": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "value": ""
+    },
+    "_meta": {
+      "title": "生成提示词（中文对白请写在对话标签内）"
+    }
+  },
+  "140": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "lora_name": "pika_h3_flex_turbo_8step_hd_ref2va.safetensors",
+      "strength_model": 1,
+      "model": [
+        "127",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "8步高清加速 LoRA（默认档位）"
+    }
+  },
+  "141": {
+    "class_type": "MiniMaxH3SigmaShift",
+    "inputs": {
+      "shift_video": 12,
+      "shift_audio": 3,
+      "model": [
+        "148",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "视频／音频时序偏移（12／3）"
+    }
+  },
+  "146": {
+    "class_type": "PrimitiveBoolean",
+    "inputs": {
+      "value": false
+    },
+    "_meta": {
+      "title": "速度档：开启4步快速，关闭8步高清"
+    }
+  },
+  "147": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "lora_name": "pika_h3_flex_turbo_4step_ref2va.safetensors",
+      "strength_model": 1,
+      "model": [
+        "127",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "4步快速加速 LoRA"
+    }
+  },
+  "148": {
+    "class_type": "ComfySwitchNode",
+    "inputs": {
+      "switch": [
+        "146",
+        0
+      ],
+      "on_false": [
+        "140",
+        0
+      ],
+      "on_true": [
+        "147",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "自动选择与速度档匹配的 LoRA"
+    }
+  },
+  "149": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "4 if a else 8",
+      "values.a": [
+        "146",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "自动选择4步或8步"
+    }
+  },
+  "160": {
+    "class_type": "PrimitiveBoolean",
+    "inputs": {
+      "value": true
+    },
+    "_meta": {
+      "title": "画面方向：开启横屏，关闭竖屏"
+    }
+  },
+  "161": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "1344 if a else 768",
+      "values.a": [
+        "160",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "原生画面宽度（自动）"
+    }
+  },
+  "162": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "768 if a else 1344",
+      "values.a": [
+        "160",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "原生画面高度（自动）"
+    }
+  },
+  "163": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "2560 if a else 1440",
+      "values.a": [
+        "160",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "2K画面宽度（自动）"
+    }
+  },
+  "164": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "1440 if a else 2560",
+      "values.a": [
+        "160",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "2K画面高度（自动）"
+    }
+  },
+  "165": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "value": 5
+    },
+    "_meta": {
+      "title": "目标时长（秒）"
+    }
+  },
+  "166": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+      "values.a": [
+        "165",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "自动对齐H3帧数（5秒约124帧）"
+    }
+  },
+  "203": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "relayvsr_x2_lightx2v_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "RelayVSR ×2：超分模型"
+    }
+  },
+  "204": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "relayvsr_flash_vae_x2_fp32.safetensors"
+    },
+    "_meta": {
+      "title": "Flash VAE ×2：高分辨率重建"
+    }
+  },
+  "205": {
+    "class_type": "RelayVSRConditioning",
+    "inputs": {
+      "model": [
+        "203",
+        0
+      ],
+      "images": [
+        "122",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "提取视频关键帧作为超分条件"
+    }
+  },
+  "206": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 26112027
+    },
+    "_meta": {
+      "title": "超分随机种子（默认）"
+    }
+  },
+  "207": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "203",
+        0
+      ],
+      "conditioning": [
+        "205",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "超分引导（默认）"
+    }
+  },
+  "208": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "_meta": {
+      "title": "超分采样算法（Euler）"
+    }
+  },
+  "209": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "scheduler": "simple",
+      "steps": 1,
+      "denoise": 1,
+      "model": [
+        "203",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "超分仅采样1步"
+    }
+  },
+  "210": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "206",
+        0
+      ],
+      "guider": [
+        "207",
+        0
+      ],
+      "sampler": [
+        "208",
+        0
+      ],
+      "sigmas": [
+        "209",
+        0
+      ],
+      "latent_image": [
+        "205",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "RelayVSR一次超分采样"
+    }
+  },
+  "211": {
+    "class_type": "VSRDecode",
+    "inputs": {
+      "detail": 1,
+      "vae": [
+        "204",
+        0
+      ],
+      "samples": [
+        "210",
+        0
+      ],
+      "images": [
+        "122",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "重建全部视频帧，放大2倍"
+    }
+  },
+  "212": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "upscale_method": "lanczos",
+      "width": [
+        "163",
+        1
+      ],
+      "height": [
+        "164",
+        1
+      ],
+      "crop": "center",
+      "image": [
+        "211",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "整理为标准2K尺寸（跟随画幅）"
+    }
+  },
+  "213": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 24,
+      "bit_depth": 8,
+      "color_space": "sRGB",
+      "chroma_subsampling": "auto",
+      "codec": "none",
+      "images": [
+        "212",
+        0
+      ],
+      "audio": [
+        "121",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "将原声音轨接回2K画面"
+    }
+  },
+  "214": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "CartoonStudio/H3/2K",
+      "format": "mp4",
+      "format.codec": "h264",
+      "format.codec.encoding": "auto",
+      "codec": "auto",
+      "video": [
+        "213",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "最终2K成片（MP4）"
+    }
+  }
+}

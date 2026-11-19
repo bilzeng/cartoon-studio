@@ -1,0 +1,46 @@
+.asset-file-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 2px;
+  border: 1px solid #47494c;
+  border-radius: 7px;
+  background: #242628;
+}
+.asset-file-actions > :is(a, button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #edeff0;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.asset-file-actions > :is(a, button):hover { background: #3b3e40; }
+.asset-file-actions[data-compact] > :is(a, button) { padding-inline: 5px; }
+.asset-file-actions > [role="alert"] {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  bottom: calc(100% + 4px);
+  width: max-content;
+  max-width: 240px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: #292325;
+  color: #ffceca;
+  font-size: 12px;
+}
+.tile-file-tools .asset-file-actions > [role="alert"] { bottom: auto; top: calc(100% + 4px); }
+.viewer-caption:has(.asset-file-actions) { flex-wrap: wrap; justify-content: center; }

@@ -1,0 +1,98 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { chromium } from "playwright";
+import { createServer } from "vite";
+import { imageFixture } from "../fixtures/browser-image.mjs";
+
+test("整批导入标签，逐项修正自动标签，重复打开及跨素材追加标签", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), "studio-tags-"));
+  process.env.STUDIO_DATA_DIR = dir;
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const vite = await createServer({ server: { port: 0, hmr: false }, logLevel: "error" });
+  await vite.listen();
+  t.after(() => vite.close());
+  const browser = await chromium.launch();
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1260, height: 800 } });
+  page.setDefaultTimeout(5000);
+  const base = vite.resolvedUrls.local[0];
+  const button = name => page.getByRole("button", { name, exact: true });
+  const catalog = async () => (await page.request.get(base + "api/assets/library")).json();
+  const photos = await Promise.all(["teal", "pink", "navy", "olive"].map(color => imageFixture(page, color, "image/jpeg")));
+  async function choose(buttonName, files) {
+    const chooser = page.waitForEvent("filechooser");
+    await button(buttonName).click();
+    await (await chooser).setFiles(files.map(([name, index]) => ({ name, mimeType: "image/jpeg", buffer: photos[index] })));
+  }
+  const edit = name => button("编辑标签：" + name).click();
+  const save = () => button("保存标签").click();
+  const filters = page.getByRole("group", { name: "素材标签" });
+  const custom = page.getByLabel("自定义标签", { exact: true });
+  await page.goto(base + "#assets");
+  await button("带标签导入").click();
+  await custom.fill("第一集，雨夜、第一集");
+  await choose("选择文件", [["灯塔.jpg", 0], ["背景.jpg", 1]]);
+  await button("编辑标签：背景.jpg").waitFor();
+  await choose("导入素材", [["单独导入.jpg", 2]]);
+  await button("编辑标签：单独导入.jpg").waitFor();
+  await edit("灯塔.jpg");
+  await button("移除标签：雨夜").click();
+  await button("场景").and(page.locator(".editable-tags button")).click();
+  await custom.fill("备用镜头");
+  await save();
+  await filters.getByRole("button", { name: "备用镜头", exact: true }).click();
+  assert.equal(await page.locator(".asset-grid article").count(), 1);
+  await page.reload();
+  await edit("灯塔.jpg");
+  const autoScene = page.locator("fieldset").getByRole("button", { name: "场景", exact: true });
+  assert.equal(await autoScene.getAttribute("aria-pressed"), "false");
+  await autoScene.click();
+  await save();
+  await button("保存标签").waitFor({ state: "detached" });
+  const rows = await catalog();
+  const first = rows.find(a => a.name === "灯塔.jpg");
+  assert.deepEqual(first.customTags, ["第一集", "备用镜头"]);
+  assert.ok(first.tags.includes("场景"));
+  assert.deepEqual(rows.find(a => a.name === "背景.jpg").customTags, ["第一集", "雨夜"]);
+  assert.deepEqual(rows.find(a => a.name === "单独导入.jpg").customTags, []);
+
+  // Existing bundled media can be tagged from the same editor.
+  const builtin = rows.find(a => a.builtin);
+  await edit(builtin.name);
+  await custom.fill("内置备选");
+  await custom.press("Enter");
+  await save();
+  await filters.getByRole("button", { name: "内置备选", exact: true }).waitFor();
+
+  const project = await (await page.request.post(base + "api/projects", { data: { name: "标签测试" } })).json();
+  await page.goto(base + "#project/" + project.id);
+  await button("素材库").click();
+  await page.getByRole("checkbox", { name: "选择 灯塔.jpg" }).check();
+  await page.getByRole("checkbox", { name: "选择 背景.jpg" }).check();
+  await button("批量加标签").click();
+  await custom.fill("第二版");
+  await save();
+  await filters.getByRole("button", { name: "第二版", exact: true }).click();
+  assert.equal(await page.locator(".asset-grid input:checked").count(), 2);
+  const final = await catalog();
+  assert.deepEqual(final.find(a => a.id === first.id).customTags, ["第一集", "备用镜头", "第二版"]);
+  assert.deepEqual(final.find(a => a.name === "背景.jpg").customTags, ["第一集", "雨夜", "第二版"]);
+
+  await button("清空选择").click();
+  await filters.getByRole("button", { name: "全部标签", exact: true }).click();
+  await button("带标签导入").click();
+  await custom.fill("补拍");
+  await choose("选择文件", [["改名的灯塔.jpg", 0], ["新画面.jpg", 3], ["新画面的副本.jpg", 3]]);
+  await page.getByText("已导入 1 个素材，跳过 2 个重复文件", { exact: true }).waitFor();
+  assert.equal(await page.locator(".asset-grid input:checked").count(), 1);
+  assert.ok(await page.getByRole("checkbox", { name: "选择 新画面.jpg" }).isChecked());
+  await choose("导入素材", [["又改名了.jpg", 3]]);
+  await page.getByText("素材已存在：新画面.jpg", { exact: true }).waitFor();
+  const afterImport = await catalog();
+  assert.equal(afterImport.length, final.length + 1);
+  assert.deepEqual(afterImport.find(a => a.name === "新画面.jpg").customTags, ["补拍"]);
+  assert.deepEqual(afterImport.find(a => a.id === first.id).customTags, ["第一集", "备用镜头", "第二版"]);
+});

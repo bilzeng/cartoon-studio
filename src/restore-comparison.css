@@ -1,0 +1,158 @@
+.restore-comparison {
+  --unit: var(--comparison-unit, 1px);
+  --grip: calc(28 * var(--unit));
+  --hit: calc(42 * var(--unit));
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+.restore-comparison :is(img, .restore-handle, .restore-grip, .restore-divider) { transition: none; }
+.restore-comparison img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  pointer-events: none;
+}
+.restore-original {
+  clip-path: inset(0 0 0 var(--split));
+  background: #252525;
+}
+.flow-tile-face[data-group-image="true"] .restore-comparison img {
+  pointer-events: auto;
+  cursor: zoom-in;
+}
+.restore-caption {
+  position: absolute;
+  bottom: 8px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: #fff;
+  background: rgb(16 16 16 / 72%);
+  font: 500 11px/1.5 system-ui, sans-serif;
+  pointer-events: none;
+}
+.restore-caption.after { left: 8px; }
+.restore-caption.before { right: 8px; }
+.restore-divider {
+  position: absolute;
+  inset-block: 0;
+  left: clamp(0px, var(--split), calc(100% - 1.5 * var(--unit)));
+  width: calc(1.5 * var(--unit));
+  background: #fff;
+  box-shadow: 0 0 0 var(--unit) rgb(0 0 0 / 32%);
+  pointer-events: none;
+}
+.restore-handle {
+  position: absolute;
+  inset-block: 0;
+  left: clamp(0px, calc(var(--split) - var(--hit) / 2), calc(100% - var(--hit)));
+  width: var(--hit);
+  display: grid;
+  place-items: center;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+  outline: none;
+}
+.restore-grip {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grip);
+  height: var(--grip);
+  background: #fafafa;
+  color: #252525;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.restore-grip svg {
+  width: calc(11 * var(--unit));
+  height: calc(14 * var(--unit));
+  stroke-width: 2;
+}
+.restore-handle:focus-visible .restore-grip {
+  background: #285c63;
+  color: #fff;
+}
+@media (forced-colors: active) {
+  .restore-handle:focus-visible .restore-grip {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+.reference-viewer[data-compare][open] { background: #101112; }
+.restore-viewer-stage {
+  overflow: auto;
+  overscroll-behavior: contain;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  container-type: size;
+}
+.restore-viewer-mat {
+  display: grid;
+  place-items: center;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+}
+.restore-comparison[data-expanded] {
+  position: relative;
+  inset: auto;
+  --unit: 1px;
+  --grip: 34px;
+}
+.restore-comparison[data-expanded] > img:first-child {
+  display: block;
+  position: static;
+  width: auto;
+  height: auto;
+  max-width: 100cqw;
+  max-height: 100cqh;
+}
+.restore-comparison[data-scrub] .restore-handle { inset: 0; width: 100%; }
+.restore-comparison[data-scrub] .restore-grip {
+  position: absolute;
+  left: clamp(0px, calc(var(--split) - var(--grip) / 2), calc(100% - var(--grip)));
+}
+.restore-viewer-heading {
+  position: absolute;
+  top: 13px;
+  left: 20px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.restore-viewer-stage[data-actual] .restore-comparison { cursor: grab; }
+.restore-viewer-stage[data-actual] .restore-comparison:active { cursor: grabbing; }
+.restore-viewer-stage[data-actual] .restore-comparison > img:first-child {
+  max-width: none;
+  max-height: none;
+}
+.restore-zoom {
+  position: absolute;
+  top: 10px;
+  right: 67px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: #242628;
+}
+.restore-zoom button {
+  min-height: 27px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  color: #adb0b3;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.restore-zoom button[aria-pressed="true"] { background: #3d4042; color: #fff; }
+.restore-zoom button:hover { color: #fff; }

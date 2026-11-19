@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.studio/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+
+/data/
+/runtime/
+/releases/
