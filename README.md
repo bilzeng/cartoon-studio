@@ -1,22 +1,29 @@
+![镜场 Cartoon Studio · 本地短片与 AI 漫剧工作台](docs/images/cover.jpg)
+
+<p align="center">
+  <a href="https://github.com/bilzeng/cartoon-studio"><img alt="GitHub 仓库" src="https://img.shields.io/badge/GitHub-24292f?style=flat-square&amp;logo=github&amp;logoColor=white"></a>
+  <a href="https://github.com/bilzeng/cartoon-studio/issues"><img alt="GitHub Issues 问题反馈" src="https://img.shields.io/badge/Issues-24292f?style=flat-square&amp;logo=github&amp;logoColor=white"></a>
+  <a href="LICENSE"><img alt="Apache-2.0 许可证" src="https://img.shields.io/badge/License-Apache%202.0-315f5c?style=flat-square"></a>
+  <a href="https://nodejs.org/"><img alt="Node.js 24 或更新版本" src="https://img.shields.io/badge/Node.js-24%2B-315f5c?style=flat-square"></a>
+  <a href="#连接-comfyui"><img alt="接入 ComfyUI" src="https://img.shields.io/badge/Generation-ComfyUI-315f5c?style=flat-square"></a>
+</p>
+
 # 镜场 · Cartoon Studio
 
-**运行在本机的中文短片创作工作台。** 用节点画布管理图像、视频和音频，用分镜表组织镜头，再把选定的版本编排成片。连接 ComfyUI 后，可以在同一项目中使用自己的模型和工作流。
+镜场是一款运行在本机的开源短片与 AI 漫剧工作台。你可以在节点画布上组织参考素材，按剧本拆分和编排镜头，用自己的 ComfyUI 工作流生成图像、视频与旁白，再从分镜台导出 MP4。
 
-[快速开始](#快速开始) · [制作一集](#制作一集) · [连接-comfyui](#连接-comfyui) · [开发与测试](#开发与测试) · [许可证](#许可证)
+[快速开始](#快速开始) · [制作一集](#制作一集) · [连接 ComfyUI](#连接-comfyui) · [开源项目与致谢](#开源项目与致谢) · [开发与测试](#开发与测试)
 
-![镜场的工作流画布，剧本节点连接《潮汐电台》的六个分镜](docs/images/canvas.jpg)
+## 功能一览
 
-## 可以做什么
+- **自由画布**　拖入图片，组织图像、视频和音频素材，拖动节点端口连线。在提示词中用 `@` 指定参考图。
+- **分镜与版本**　逐镜编辑运镜、对白和时长，跨集复用角色、场景和道具。每个镜头可独立返工，预览后再选用版本。
+- **图像与视频**　使用自定义像素尺寸、PoseSwap 姿势换装、RelayVSR 高清修复及 H3 两段续接。
+- **素材与成片**　给素材去重、打标签、收藏，从分镜台预览镜头顺序，导出带配乐的 MP4。
 
-| 功能 | 在镜场里的操作 |
-| --- | --- |
-| 工作流画布 | 放置剧本、文本、分镜、图片、视频和音频节点。直接拖入图片，拖动端口创建连线。在提示词中用 `@` 指定上游参考图。 |
-| 剧集与分镜 | 从剧本拆镜，逐镜编辑时长、画面、运镜、对白和音效。在多集间复用角色、场景、道具及剧集基调。 |
-| 单镜返工 | 为同一镜头保留多个生成版本，预览后选择时间线采用哪一版。每个镜头可以独立重做。 |
-| 图片创作 | 选择比例、常用像素尺寸或自定义宽高。使用提示词预设与环境中可用的 LoRA，也可用 PoseSwap 分别指定人物、姿势和服装。 |
-| 高清修复 | 从原图创建独立修复节点，使用兼容环境中的 RelayVSR ×2 流程，按原比例输出指定长边，并拖动滑杆对比修复前后。 |
-| 视频与音频 | 接入图生视频、H3 两段续接、旁白、音轨替换等工作流。把素材放入分镜台预览并导出 MP4。 |
-| 素材管理 | 对导入素材进行去重、标签和收藏。从画布或生成记录下载对应版本，也可以在系统文件管理器中定位。 |
+![镜场工作流画布，剧本节点连到《潮汐电台》的六个分镜](docs/images/canvas.jpg)
+
+*《潮汐电台》内置示例，启动镜场即可打开。*
 
 ## 快速开始
 
@@ -85,6 +92,23 @@ npm start
 
 PoseSwap 外部图库需要联网，来源和授权范围见 [第三方来源](THIRD_PARTY_NOTICES.md)。
 
+## 开源项目与致谢
+
+感谢以下项目。镜场通过 ComfyUI API 调用生成能力，所需插件由使用者按工作流安装。
+
+| 项目 | 镜场中的用途 |
+| --- | --- |
+| [ComfyUI](https://github.com/Comfy-Org/ComfyUI) | 提交生成工作流、读取节点和模型列表、跟踪任务并回收成品。 |
+| [AICG3D](https://github.com/JGRFW/comfyui-AICG3D) | MiniMax H3 分段续接与 Spark-TTS 旁白的节点来源。 |
+| [AICG3D PoseSwap](https://github.com/JGRFW/comfyui-aicg3d-PoseSwap) | 人物、姿势和服装参考图库的来源。镜场从固定版本在线读取三套图库。 |
+| [VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) | 内置 Wan 2.1 视频工作流通过 `VHS_VideoCombine` 输出 MP4。 |
+| [RelayVSR](https://github.com/kopperx/RelayVSR) · [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) | 高清修复和超分工作流对应的上游项目。 |
+| [FFmpeg](https://github.com/FFmpeg/FFmpeg) | 在本机拼接镜头、处理音视频、导出成片。 |
+| [React](https://github.com/facebook/react) · [React Flow](https://github.com/xyflow/xyflow) · [CodeMirror](https://codemirror.net/) · [Lucide](https://github.com/lucide-icons/lucide) | 应用界面、节点与连线、提示词编辑和图标。 |
+| [Node.js](https://github.com/nodejs/node) · [Express](https://github.com/expressjs/express) · [Vite](https://github.com/vitejs/vite) · [Playwright](https://github.com/microsoft/playwright) | 本地运行时和 API、前端构建、浏览器回归测试。 |
+
+模型、LoRA 的发布页、节点标识、完整直接依赖和图库使用条款均列在 [第三方来源与许可说明](THIRD_PARTY_NOTICES.md)。README 的封面与导航编排参考了 [Toonflow 的项目文档](https://github.com/HBAI-Ltd/Toonflow-app)。
+
 ## 项目数据
 
 项目文件、个人素材、生成记录、环境设置和导出成片保存在本机的 `data/`。迁移时先退出镜场，再备份整个 `data/` 目录。画布 JSON 可单独导出和导入，用于迁移画布结构及素材引用。引用对应的原始媒体需随数据目录一并迁移。
@@ -113,7 +137,7 @@ npm run build
 npm run test:sites
 ```
 
-遇到问题可在 GitHub Issues 提交复现步骤、系统与运行时版本、所用预设和脱敏错误信息。欢迎提交问题修复和可复用的工作流改进。
+遇到问题可在 [GitHub Issues](https://github.com/bilzeng/cartoon-studio/issues) 提交复现步骤、系统与运行时版本、所用预设和脱敏错误信息。欢迎提交问题修复和可复用的工作流改进。
 
 ## 许可证
 
