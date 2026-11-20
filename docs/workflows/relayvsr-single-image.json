@@ -1,0 +1,678 @@
+{
+  "id": "8c5f13de-cebc-41da-bd2e-f5e9fd307065",
+  "revision": 0,
+  "last_node_id": 214,
+  "last_link_id": 56,
+  "nodes": [
+    {
+      "id": 137,
+      "type": "LoadImage",
+      "pos": [
+        40,
+        80
+      ],
+      "size": [
+        295,
+        320
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            38,
+            49
+          ]
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "title": "载入原图",
+      "properties": {
+        "Node name for S&R": "LoadImage",
+        "cnr_id": "comfy-core"
+      },
+      "widgets_values": [
+        "source.png",
+        "image"
+      ],
+      "widgets_values_named": {
+        "image": "original-shot27-reference-direct-1794243483083.png",
+        "upload": "image"
+      },
+      "color": "#39684b",
+      "bgcolor": "#252a30"
+    },
+    {
+      "id": 203,
+      "type": "UNETLoader",
+      "pos": [
+        40,
+        455
+      ],
+      "size": [
+        335,
+        85
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "slot_index": 0,
+          "links": [
+            37,
+            39,
+            41
+          ]
+        }
+      ],
+      "title": "RelayVSR ×2 模型",
+      "properties": {
+        "Node name for S&R": "UNETLoader",
+        "cnr_id": "comfy-core"
+      },
+      "widgets_values": [
+        "RelayVSR/relayvsr_x2_lightx2v_int8_convrot.safetensors",
+        "default"
+      ],
+      "widgets_values_named": {
+        "unet_name": "relayvsr_x2_lightx2v_int8_convrot.safetensors",
+        "weight_dtype": "default"
+      },
+      "color": "#397e82",
+      "bgcolor": "#252a30"
+    },
+    {
+      "id": 204,
+      "type": "VAELoader",
+      "pos": [
+        40,
+        610
+      ],
+      "size": [
+        335,
+        70
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "slot_index": 0,
+          "links": [
+            47
+          ]
+        }
+      ],
+      "title": "Flash VAE ×2",
+      "properties": {
+        "Node name for S&R": "VAELoader",
+        "cnr_id": "comfy-core"
+      },
+      "widgets_values": [
+        "RelayVSR/relayvsr_flash_vae_x2_fp32.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "relayvsr_flash_vae_x2_fp32.safetensors"
+      },
+      "color": "#397e82",
+      "bgcolor": "#252a30"
+    },
+    {
+      "id": 205,
+      "type": "RelayVSRConditioning",
+      "pos": [
+        425,
+        80
+      ],
+      "size": [
+        300,
+        90
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 37
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 38
+        }
+      ],
+      "outputs": [
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "slot_index": 0,
+          "links": [
+            40
+          ]
+        },
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "slot_index": 1,
+          "links": [
+            46
+          ]
+        }
+      ],
+      "title": "RelayVSR 原图条件",
+      "properties": {
+        "Node name for S&R": "RelayVSRConditioning",
+        "cnr_id": "comfy-core"
+      },
+      "color": "#397e82",
+      "bgcolor": "#252a30"
+    },
+    {
+      "id": 206,
+      "type": "RandomNoise",
+      "pos": [
+        425,
+        235
+      ],
+      "size": [
+        300,
+        85
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "NOISE",
+          "type": "NOISE",
+          "links": [
+            42
+          ]
+        }
+      ],
+      "title": "固定种子",
+      "properties": {
+        "Node name for S&R": "RandomNoise",
+        "cnr_id": "comfy-core"
+      },
+      "widgets_values": [
+        26112027,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "noise_seed": 26112027,
+        "control_after_generate": "fixed"
+      },
+      "color": "#397e82",
+      "bgcolor": "#252a30"
+    },
+    {
+      "id": 207,
+      "type": "BasicGuider",
+      "pos": [
+        790,
+        80
+      ],
+      "size": [
+        280,
+        85
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 39
+        },
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 40
+        }
+      ],
+      "outputs": [
+        {
+          "name": "GUIDER",
+          "type": "GUIDER",
+          "links": [
+            43
+          ]
+        }
+      ],
+      "title": "采样引导",
+      "properties": {
+        "Node name for S&R": "BasicGuider",
+        "cnr_id": "comfy-core"
+      },
+      "color": "#397e82",
+      "bgcolor": "#252a30"
+    },
+    {
+      "id": 208,
+      "type": "KSamplerSelect",
+      "pos": [
+        425,
+        380
+      ],
+      "size": [
+        300,
+        65
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "SAMPLER",
+          "type": "SAMPLER",
+          "links": [
+            44
+          ]
+        }
+      ],
+      "title": "Euler 采样",
+      "properties": {
+        "Node name for S&R": "KSamplerSelect",
+        "cnr_id": "comfy-core"
+      },
+      "widgets_values": [
+        "euler"
+      ],
+      "widgets_values_named": {
+        "sampler_name": "euler"
+      },
+      "color": "#397e82",
+      "bgcolor": "#252a30"
+    },
+    {
+      "id": 209,
+      "type": "BasicScheduler",
+      "pos": [
+        425,
+        510
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 41
+        }
+      ],
+      "outputs": [
+        {
+          "name": "SIGMAS",
+          "type": "SIGMAS",
+          "links": [
+            45
+          ]
+        }
+      ],
+      "title": "Simple · 1 步",
+      "properties": {
+        "Node name for S&R": "BasicScheduler",
+        "cnr_id": "comfy-core"
+      },
+      "widgets_values": [
+        "simple",
+        1,
+        1
+      ],
+      "widgets_values_named": {
+        "scheduler": "simple",
+        "steps": 1,
+        "denoise": 1
+      },
+      "color": "#397e82",
+      "bgcolor": "#252a30"
+    },
+    {
+      "id": 210,
+      "type": "SamplerCustomAdvanced",
+      "pos": [
+        790,
+        235
+      ],
+      "size": [
+        280,
+        135
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "noise",
+          "type": "NOISE",
+          "link": 42
+        },
+        {
+          "name": "guider",
+          "type": "GUIDER",
+          "link": 43
+        },
+        {
+          "name": "sampler",
+          "type": "SAMPLER",
+          "link": 44
+        },
+        {
+          "name": "sigmas",
+          "type": "SIGMAS",
+          "link": 45
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 46
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "type": "LATENT",
+          "links": [
+            48
+          ]
+        },
+        {
+          "name": "denoised_output",
+          "type": "LATENT",
+          "links": null
+        }
+      ],
+      "title": "RelayVSR 单步采样",
+      "properties": {
+        "Node name for S&R": "SamplerCustomAdvanced",
+        "cnr_id": "comfy-core"
+      },
+      "color": "#397e82",
+      "bgcolor": "#252a30"
+    },
+    {
+      "id": 211,
+      "type": "VSRDecode",
+      "pos": [
+        1145,
+        110
+      ],
+      "size": [
+        285,
+        125
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 47
+        },
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 48
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 49
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            50
+          ]
+        }
+      ],
+      "title": "Flash 超分解码 · Detail 1",
+      "properties": {
+        "Node name for S&R": "VSRDecode",
+        "cnr_id": "comfy-core"
+      },
+      "widgets_values": [
+        1
+      ],
+      "widgets_values_named": {
+        "detail": 1
+      },
+      "color": "#397e82",
+      "bgcolor": "#252a30"
+    },
+    {
+      "id": 212,
+      "type": "ImageScaleToMaxDimension",
+      "title": "Lanczos · 保留原比例",
+      "pos": [
+        1145,
+        300
+      ],
+      "size": [
+        285,
+        100
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 50
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            56
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "ImageScaleToMaxDimension"
+      },
+      "widgets_values": [
+        "lanczos",
+        2560
+      ]
+    },
+    {
+      "id": 214,
+      "type": "SaveImage",
+      "title": "保存 2K 图片",
+      "pos": [
+        1500,
+        110
+      ],
+      "size": [
+        315,
+        345
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 56
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveImage"
+      },
+      "widgets_values": [
+        "CartoonStudio/RelayVSR/Original"
+      ]
+    }
+  ],
+  "links": [
+    [
+      37,
+      203,
+      0,
+      205,
+      0,
+      "MODEL"
+    ],
+    [
+      38,
+      137,
+      0,
+      205,
+      1,
+      "IMAGE"
+    ],
+    [
+      39,
+      203,
+      0,
+      207,
+      0,
+      "MODEL"
+    ],
+    [
+      40,
+      205,
+      0,
+      207,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      41,
+      203,
+      0,
+      209,
+      0,
+      "MODEL"
+    ],
+    [
+      42,
+      206,
+      0,
+      210,
+      0,
+      "NOISE"
+    ],
+    [
+      43,
+      207,
+      0,
+      210,
+      1,
+      "GUIDER"
+    ],
+    [
+      44,
+      208,
+      0,
+      210,
+      2,
+      "SAMPLER"
+    ],
+    [
+      45,
+      209,
+      0,
+      210,
+      3,
+      "SIGMAS"
+    ],
+    [
+      46,
+      205,
+      1,
+      210,
+      4,
+      "LATENT"
+    ],
+    [
+      47,
+      204,
+      0,
+      211,
+      0,
+      "VAE"
+    ],
+    [
+      48,
+      210,
+      0,
+      211,
+      1,
+      "LATENT"
+    ],
+    [
+      49,
+      137,
+      0,
+      211,
+      2,
+      "IMAGE"
+    ],
+    [
+      50,
+      211,
+      0,
+      212,
+      0,
+      "IMAGE"
+    ],
+    [
+      56,
+      212,
+      0,
+      214,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.76,
+      "offset": [
+        10,
+        30
+      ]
+    }
+  },
+  "version": 0.4
+}

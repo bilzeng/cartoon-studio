@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { videoModelPresets, videoStyleFiles } from "../server/video-models.mjs";
-import { bindPreset, describePreset } from "../server/workflow-presets.mjs";
+import { bindPreset, checkedGraph, describePreset, readPresets } from "../server/workflow-presets.mjs";
 import { resolveWorkflowInputs, workflowNeeds } from "../shared/canvas.js";
 import { h3Continuation } from "../server/presets/h3-continuation.mjs";
 import { h3ContinuationFields } from "../shared/h3-video.js";
+import { changeSettings } from "../server/files.mjs";
 import { bundledPresets } from "../server/presets/catalog.mjs";
 import {
   relayOriginalRestoreModelId, restoreSizeKey, secondPassRestoreId, redrawStrengthKey,
@@ -235,6 +236,7 @@ test("镜头01一采仅提交 H3，高清修复按选定分辨率重新采样并
   assert.deepEqual(graph[preview.bindings.output].inputs.video, ["130", 0]);
   assert.deepEqual(graph[130].inputs.images, ["122", 0]);
   assert.deepEqual(graph[130].inputs.audio, ["121", 0]);
+  assert.deepEqual(preview.bindings.outputSize, [1344, 768]);
   assert.equal(graph[130].inputs.fps, 24);
   assert.deepEqual(graph[136].inputs["ref_images.ref_image_2"], ["studio-ref-3", 0]);
   assert.ok(!Object.values(graph).some(n => /RelayVSR|VSRDecode/.test(n.class_type)));
@@ -248,6 +250,30 @@ test("镜头01一采仅提交 H3，高清修复按选定分辨率重新采样并
   assert.match(bound.width.inputs.expression, /3840/);
   assert.deepEqual(bound[213].inputs.audio, ["components", 1]);
   assert.deepEqual(bound[213].inputs.fps, ["components", 2]);
+});
+
+test("含姓名角色卡随安装提供，原有本地导入及模型映射优先生效且不会重复显示", async () => {
+  const id = "studio:preset:23e7f5c7-52fc-4fb5-8d59-2e5472e71d63";
+  const inventory = { diffusion_models: [], text_encoders: [], vae: [], loras: [] };
+  const defaults = (await readPresets(inventory)).filter(p => p.id === id);
+  assert.equal(defaults.length, 1);
+  const [preset] = defaults;
+  const graph = checkedGraph(preset.graph);
+  assert.equal(graph[4].inputs.value, "");
+  assert.equal(graph[110].inputs.image, "{{resource:circle-mask}}");
+  assert.equal(graph[120].class_type, "LayerUtility: SimpleTextImage");
+  assert.deepEqual(graph[100].inputs.images, ["132", 0]);
+  assert.deepEqual(preset.bindings.outputSize, [2560, 1440]);
+
+  const { currentUrl } = await import("../server/environments.mjs");
+  await changeSettings(settings => {
+    settings.presets.push({ ...preset, name: "本地角色卡配置", environment: currentUrl() });
+    settings.mappings.push({ preset: id, environment: currentUrl(), files: { '["120","font_file"]': "local-font.ttf" } });
+  });
+  const overrides = (await readPresets(inventory)).filter(p => p.id === id);
+  assert.equal(overrides.length, 1);
+  assert.equal(overrides[0].name, "本地角色卡配置");
+  assert.equal(overrides[0].fileMap['["120","font_file"]'], "local-font.ttf");
 });
 
 test("旧角色卡节点使用已连接的原图，三个视图共用身份且可独立填写署名", () => {

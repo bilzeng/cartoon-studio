@@ -1,0 +1,1170 @@
+{
+  "id": "studio:preset:23e7f5c7-52fc-4fb5-8d59-2e5472e71d63",
+  "name": "角色卡 · 含姓名三栏 2K",
+  "graph": {
+    "1": {
+      "class_type": "PrimitiveString",
+      "inputs": {
+        "value": "角色资产"
+      },
+      "_meta": {
+        "title": "00 剧名｜输出文件夹"
+      }
+    },
+    "2": {
+      "class_type": "PrimitiveString",
+      "inputs": {
+        "value": "角色"
+      },
+      "_meta": {
+        "title": "01 角色姓名｜输出路径与卡面姓名"
+      }
+    },
+    "3": {
+      "class_type": "PrimitiveString",
+      "inputs": {
+        "value": "v001"
+      },
+      "_meta": {
+        "title": "03 资产版本｜递增后再运行"
+      }
+    },
+    "4": {
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": ""
+      },
+      "_meta": {
+        "title": "02 角色身份与服装｜更换角色时修改这里"
+      }
+    },
+    "5": {
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "Premium semi-realistic cinematic character design, a sophisticated digital human with subtly anime-inspired idealized facial architecture and genuinely lifelike skin. Sculpted yet believable facial planes, refined facial features, natural human-sized eyes, real pores and soft facial hair. The face has a distinctive designed silhouette. Fine individual hair strands and tactile cotton fabric. Beautiful, not a generic fashion catalogue face."
+      },
+      "_meta": {
+        "title": "统一画风｜全剧共用"
+      }
+    },
+    "6": {
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "One single strict frontal full-body character casting image on a plain seamless white studio backdrop. Head and shoe soles entirely in frame, centered, hands relaxed and empty, arms slightly separated from the torso. Natural proportions and long-lens perspective, no stretched legs or tiny head. Large soft key light from upper camera-left sculpts the brow, cheekbones and jaw; weaker fill from the right keeps the shadow side legible. Cinematic 3:1 lighting contrast, softly graded shadows, accurate neutral skin tone, no beauty smoothing. No text, captions, collage, frame, watermark or extra figure."
+      },
+      "_meta": {
+        "title": "正面全身构图｜全剧共用"
+      }
+    },
+    "7": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "5",
+          0
+        ],
+        "string_b": [
+          "4",
+          0
+        ],
+        "delimiter": "\n"
+      },
+      "_meta": {
+        "title": "合并画风与角色"
+      }
+    },
+    "8": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "7",
+          0
+        ],
+        "string_b": [
+          "6",
+          0
+        ],
+        "delimiter": "\n"
+      },
+      "_meta": {
+        "title": "完整身份锚点提示词"
+      }
+    },
+    "9": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "1",
+          0
+        ],
+        "string_b": [
+          "2",
+          0
+        ],
+        "delimiter": "/"
+      },
+      "_meta": {
+        "title": "项目与角色目录"
+      }
+    },
+    "10": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "9",
+          0
+        ],
+        "string_b": [
+          "3",
+          0
+        ],
+        "delimiter": "/"
+      },
+      "_meta": {
+        "title": "项目角色版本目录"
+      }
+    },
+    "20": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "krea2_turbo_bf16.safetensors",
+        "weight_dtype": "default"
+      },
+      "_meta": {
+        "title": "Krea2｜身份锚点模型"
+      }
+    },
+    "21": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_4b_bf16.safetensors",
+        "type": "krea2",
+        "device": "default"
+      },
+      "_meta": {
+        "title": "Krea2｜4B视觉文本编码器"
+      }
+    },
+    "22": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      },
+      "_meta": {
+        "title": "Krea2｜VAE"
+      }
+    },
+    "23": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "lora_name": "Krea2/Krea2-realism-V2.safetensors",
+        "strength_model": 0.25,
+        "model": [
+          "20",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "皮肤细节 Realism V2 强度0.25"
+      }
+    },
+    "24": {
+      "class_type": "LoraLoaderModelOnly",
+      "inputs": {
+        "lora_name": "Krea2/K2-MJ美学增强Afterlight_v1.safetensors",
+        "strength_model": 0.3,
+        "model": [
+          "23",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "美学轮廓 Afterlight 强度0.3"
+      }
+    },
+    "25": {
+      "class_type": "CLIPTextEncode",
+      "inputs": {
+        "text": [
+          "8",
+          0
+        ],
+        "clip": [
+          "21",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "身份锚点｜读取通用参数"
+      }
+    },
+    "26": {
+      "class_type": "ConditioningZeroOut",
+      "inputs": {
+        "conditioning": [
+          "25",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "课程负面条件"
+      }
+    },
+    "27": {
+      "class_type": "EmptyLatentImage",
+      "inputs": {
+        "width": 1088,
+        "height": 1632,
+        "batch_size": 1
+      },
+      "_meta": {
+        "title": "正面全身 1088×1632"
+      }
+    },
+    "28": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 281113780,
+        "steps": 8,
+        "cfg": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": [
+          "24",
+          0
+        ],
+        "positive": [
+          "25",
+          0
+        ],
+        "negative": [
+          "26",
+          0
+        ],
+        "latent_image": [
+          "27",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "选角种子｜修改后重新选角"
+      }
+    },
+    "29": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "28",
+          0
+        ],
+        "vae": [
+          "22",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "唯一身份根｜正面全身"
+      }
+    },
+    "30": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": [
+          "32",
+          0
+        ],
+        "images": [
+          "202",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "保存正面锚点｜保留PNG元数据"
+      }
+    },
+    "31": {
+      "class_type": "PrimitiveString",
+      "inputs": {
+        "value": "01_正面全身"
+      },
+      "_meta": {
+        "title": "输出名称"
+      }
+    },
+    "32": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "10",
+          0
+        ],
+        "string_b": [
+          "31",
+          0
+        ],
+        "delimiter": "/"
+      },
+      "_meta": {
+        "title": "自动分类路径"
+      }
+    },
+    "40": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "qwen_image_2.1_bf16.safetensors",
+        "weight_dtype": "default"
+      },
+      "_meta": {
+        "title": "Qwen2.1｜参考图编辑模型"
+      }
+    },
+    "41": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_8b_bf16.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      },
+      "_meta": {
+        "title": "Qwen2.1｜8B视觉文本编码器"
+      }
+    },
+    "42": {
+      "class_type": "VAELoader",
+      "inputs": {
+        "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+      },
+      "_meta": {
+        "title": "Qwen2.1｜VAE"
+      }
+    },
+    "43": {
+      "class_type": "QwenImage21Cache",
+      "inputs": {
+        "device": "auto",
+        "dtype": "default",
+        "model": [
+          "40",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "共享编辑模型缓存"
+      }
+    },
+    "50": {
+      "class_type": "TextEncodeQwenImage21",
+      "inputs": {
+        "prompt": [
+          "213",
+          0
+        ],
+        "negative_prompt": "",
+        "resolution": 0,
+        "clip": [
+          "41",
+          0
+        ],
+        "vae": [
+          "42",
+          0
+        ],
+        "images.image_1": [
+          "202",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "02_面部特写｜通用参考图编辑指令"
+      }
+    },
+    "51": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 281113980,
+        "steps": 25,
+        "cfg": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": [
+          "43",
+          0
+        ],
+        "positive": [
+          "50",
+          0
+        ],
+        "negative": [
+          "50",
+          1
+        ],
+        "latent_image": [
+          "50",
+          2
+        ]
+      },
+      "_meta": {
+        "title": "02_面部特写｜保持身份与衣服"
+      }
+    },
+    "52": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "51",
+          0
+        ],
+        "vae": [
+          "42",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "02_面部特写｜图像解码"
+      }
+    },
+    "60": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": [
+          "62",
+          0
+        ],
+        "images": [
+          "52",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "02_面部特写｜保存独立原图"
+      }
+    },
+    "61": {
+      "class_type": "PrimitiveString",
+      "inputs": {
+        "value": "02_面部特写"
+      },
+      "_meta": {
+        "title": "输出名称"
+      }
+    },
+    "62": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "10",
+          0
+        ],
+        "string_b": [
+          "61",
+          0
+        ],
+        "delimiter": "/"
+      },
+      "_meta": {
+        "title": "自动分类路径"
+      }
+    },
+    "70": {
+      "class_type": "TextEncodeQwenImage21",
+      "inputs": {
+        "prompt": [
+          "215",
+          0
+        ],
+        "negative_prompt": "",
+        "resolution": 0,
+        "clip": [
+          "41",
+          0
+        ],
+        "vae": [
+          "42",
+          0
+        ],
+        "images.image_1": [
+          "202",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "03_背面全身｜通用参考图编辑指令"
+      }
+    },
+    "71": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 281114080,
+        "steps": 25,
+        "cfg": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": [
+          "43",
+          0
+        ],
+        "positive": [
+          "70",
+          0
+        ],
+        "negative": [
+          "70",
+          1
+        ],
+        "latent_image": [
+          "70",
+          2
+        ]
+      },
+      "_meta": {
+        "title": "03_背面全身｜保持身份与衣服"
+      }
+    },
+    "72": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "71",
+          0
+        ],
+        "vae": [
+          "42",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "03_背面全身｜图像解码"
+      }
+    },
+    "80": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": [
+          "82",
+          0
+        ],
+        "images": [
+          "72",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "03_背面全身｜保存独立原图"
+      }
+    },
+    "81": {
+      "class_type": "PrimitiveString",
+      "inputs": {
+        "value": "03_背面全身"
+      },
+      "_meta": {
+        "title": "输出名称"
+      }
+    },
+    "82": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "10",
+          0
+        ],
+        "string_b": [
+          "81",
+          0
+        ],
+        "delimiter": "/"
+      },
+      "_meta": {
+        "title": "自动分类路径"
+      }
+    },
+    "90": {
+      "class_type": "ImageStitch",
+      "inputs": {
+        "direction": "right",
+        "match_image_size": false,
+        "spacing_width": 8,
+        "spacing_color": "white",
+        "image1": [
+          "52",
+          0
+        ],
+        "image2": [
+          "114",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "固定版式｜特写＋遮脸正面"
+      }
+    },
+    "91": {
+      "class_type": "ImageStitch",
+      "inputs": {
+        "direction": "right",
+        "match_image_size": false,
+        "spacing_width": 8,
+        "spacing_color": "white",
+        "image1": [
+          "90",
+          0
+        ],
+        "image2": [
+          "72",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "固定版式｜右侧背面"
+      }
+    },
+    "100": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": [
+          "102",
+          0
+        ],
+        "images": [
+          "132",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "含姓名角色卡｜最终输出"
+      }
+    },
+    "101": {
+      "class_type": "PrimitiveString",
+      "inputs": {
+        "value": "04_三栏角色卡_2K_2560x1440"
+      },
+      "_meta": {
+        "title": "输出名称"
+      }
+    },
+    "102": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "10",
+          0
+        ],
+        "string_b": [
+          "101",
+          0
+        ],
+        "delimiter": "/"
+      },
+      "_meta": {
+        "title": "自动分类路径"
+      }
+    },
+    "110": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "{{resource:circle-mask}}"
+      },
+      "_meta": {
+        "title": "通用圆形蒙版｜配套素材"
+      }
+    },
+    "111": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "upscale_method": "lanczos",
+        "width": [
+          "115",
+          0
+        ],
+        "height": [
+          "115",
+          0
+        ],
+        "crop": "disabled",
+        "image": [
+          "110",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "蒙版尺寸｜读取遮挡直径"
+      }
+    },
+    "112": {
+      "class_type": "ImageToMask",
+      "inputs": {
+        "channel": "red",
+        "image": [
+          "111",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "圆形遮挡范围"
+      }
+    },
+    "113": {
+      "class_type": "EmptyImage",
+      "inputs": {
+        "width": [
+          "115",
+          0
+        ],
+        "height": [
+          "115",
+          0
+        ],
+        "batch_size": 1,
+        "color": 16777215
+      },
+      "_meta": {
+        "title": "纯白遮挡颜色"
+      }
+    },
+    "114": {
+      "class_type": "ImageCompositeMasked",
+      "inputs": {
+        "x": 457,
+        "y": 117,
+        "resize_source": false,
+        "destination": [
+          "202",
+          0
+        ],
+        "source": [
+          "113",
+          0
+        ],
+        "mask": [
+          "112",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "仅遮挡中间全身脸部｜位置x/y"
+      }
+    },
+    "115": {
+      "class_type": "PrimitiveInt",
+      "inputs": {
+        "value": 176
+      },
+      "_meta": {
+        "title": "遮挡直径｜按脸部大小调整"
+      }
+    },
+    "120": {
+      "class_type": "LayerUtility: SimpleTextImage",
+      "inputs": {
+        "text": [
+          "10",
+          0
+        ],
+        "font_file": "Alibaba-PuHuiTi-Heavy.ttf",
+        "align": "center",
+        "char_per_line": 54,
+        "leading": 8,
+        "font_size": 36,
+        "text_color": "#252525",
+        "stroke_width": 0,
+        "stroke_color": "#252525",
+        "x_offset": 0,
+        "y_offset": 31,
+        "width": 2560,
+        "height": 112
+      },
+      "_meta": {
+        "title": "中文姓名、项目与版本"
+      }
+    },
+    "130": {
+      "class_type": "ResizeAndPadImage",
+      "inputs": {
+        "image": [
+          "91",
+          0
+        ],
+        "target_width": 2560,
+        "target_height": 1328,
+        "interpolation": "lanczos",
+        "padding_color": "white"
+      },
+      "_meta": {
+        "title": "三栏画面等比居中"
+      }
+    },
+    "131": {
+      "class_type": "EmptyImage",
+      "inputs": {
+        "width": 2560,
+        "height": 112,
+        "batch_size": 1,
+        "color": 16777215
+      },
+      "_meta": {
+        "title": "白色题注栏"
+      }
+    },
+    "132": {
+      "class_type": "ImageStitch",
+      "inputs": {
+        "image1": [
+          "130",
+          0
+        ],
+        "image2": [
+          "card-caption",
+          0
+        ],
+        "direction": "down",
+        "match_image_size": false,
+        "spacing_width": 0,
+        "spacing_color": "white"
+      },
+      "_meta": {
+        "title": "含姓名的 2K 三栏卡"
+      }
+    },
+    "140": {
+      "class_type": "UpscaleModelLoader",
+      "inputs": {
+        "model_name": "RealESRGAN_x4plus.pth"
+      },
+      "_meta": {
+        "title": "细节超分模型"
+      }
+    },
+    "141": {
+      "class_type": "ImageUpscaleWithModel",
+      "inputs": {
+        "image": [
+          "52",
+          0
+        ],
+        "upscale_model": [
+          "140",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "特写原图细节超分"
+      }
+    },
+    "142": {
+      "class_type": "ImageScale",
+      "inputs": {
+        "upscale_method": "lanczos",
+        "width": 2048,
+        "height": 3072,
+        "crop": "disabled",
+        "image": [
+          "141",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "独立面部特写 2048×3072"
+      }
+    },
+    "143": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": [
+          "145",
+          0
+        ],
+        "images": [
+          "142",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "保存可放大查看的面部特写"
+      }
+    },
+    "144": {
+      "class_type": "PrimitiveString",
+      "inputs": {
+        "value": "05_面部特写_2048x3072"
+      },
+      "_meta": {
+        "title": "PrimitiveString"
+      }
+    },
+    "145": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "10",
+          0
+        ],
+        "string_b": [
+          "144",
+          0
+        ],
+        "delimiter": "/"
+      },
+      "_meta": {
+        "title": "StringConcatenate"
+      }
+    },
+    "146": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": [
+          "148",
+          0
+        ],
+        "images": [
+          "29",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "存档｜选角原图"
+      }
+    },
+    "147": {
+      "class_type": "PrimitiveString",
+      "inputs": {
+        "value": "00_选角母图"
+      },
+      "_meta": {
+        "title": "PrimitiveString"
+      }
+    },
+    "148": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "10",
+          0
+        ],
+        "string_b": [
+          "147",
+          0
+        ],
+        "delimiter": "/"
+      },
+      "_meta": {
+        "title": "StringConcatenate"
+      }
+    },
+    "200": {
+      "class_type": "TextEncodeQwenImage21",
+      "inputs": {
+        "prompt": [
+          "211",
+          0
+        ],
+        "negative_prompt": "塑料皮肤，蜡脸，巨大眼球，平涂漫画，僵硬人偶，畸形手指，拼贴五官，文字水印",
+        "resolution": 0,
+        "clip": [
+          "41",
+          0
+        ],
+        "vae": [
+          "42",
+          0
+        ],
+        "images.image_1": [
+          "29",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "真人程度微调 保持已选定身份"
+      }
+    },
+    "201": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 281113880,
+        "steps": 25,
+        "cfg": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": [
+          "43",
+          0
+        ],
+        "positive": [
+          "200",
+          0
+        ],
+        "negative": [
+          "200",
+          1
+        ],
+        "latent_image": [
+          "200",
+          2
+        ]
+      },
+      "_meta": {
+        "title": "正面全身 微调皮肤与真实感"
+      }
+    },
+    "202": {
+      "class_type": "VAEDecode",
+      "inputs": {
+        "samples": [
+          "201",
+          0
+        ],
+        "vae": [
+          "42",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "更偏真人的身份母图"
+      }
+    },
+    "210": {
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "以<image1>为服装、体态与全身构图参考，根据下面的人物说明完成最终选角，角色应当好看、有独立辨识度。真人悬疑电影定妆摄影，只保留少量理想化五官的美感。皮肤有细小毛孔、薄皮色差与克制反光，眼睑有真实厚度、正常眼球大小，嘴唇有自然体积与唇纹，头发有独立发丝，服装有厚度、接缝和自然折痕；不美颜磨皮、不树脂抛光。全身正面，相机平直，正常成年头身比例，头顶到鞋底完整入画，空手自然站立。白色背景，左前方大面积柔光塑造骨相，弱补光保留暗面。只有一个完整人物，无文字或水印。人物说明："
+      },
+      "_meta": {
+        "title": "真人程度微调｜通用说明"
+      }
+    },
+    "211": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "210",
+          0
+        ],
+        "string_b": [
+          "4",
+          0
+        ],
+        "delimiter": "\n"
+      },
+      "_meta": {
+        "title": "StringConcatenate"
+      }
+    },
+    "212": {
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "以<image1>为唯一身份、服装和皮肤质感参考，生成同一个成年角色严格正面头肩定妆特写。头发、脸、脖颈与双肩完整入画，下缘到胸口。精确保留同一颅面结构、五官间距、眼睛大小、视觉年龄、肤色、发型和衣领；保留参考人物本人的神态。真人电影摄影与极少量五官的理想化美感，皮肤细腻但有真实毛孔、薄皮色差、自然唇纹与独立发丝，眼睛湿润，眼睑有厚度，不美颜磨皮或树脂抛光。85mm自然透视，白底，同一左前柔光与弱补光。只有同一人的单独头肩近景，无文字或其他视图。"
+      },
+      "_meta": {
+        "title": "通用特写摄影说明"
+      }
+    },
+    "213": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "212",
+          0
+        ],
+        "string_b": [
+          "216",
+          0
+        ],
+        "delimiter": "\n连续性要求："
+      },
+      "_meta": {
+        "title": "StringConcatenate"
+      }
+    },
+    "214": {
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "以<image1>为唯一人物体态、发型、服装与景别参考，生成同一成年角色严格转身180度后的正后方全身定妆照。头、肩、躯干、骨盆、双脚全部背对相机，头部保持正直，镜头只能看到后脑，不能看见鼻尖、眼睛或回头侧脸。保持原参考的人物高度、脚底位置、正常头身比例，头顶和鞋底完整入画，空手自然站立。保留同一发长、后脑发型、衣领、腰带、袖口、衣服裤裙与鞋履，皮肤、头发和织物有真人材质，不增加新饰品和道具。白色无缝背景，原参考相同的左前方柔光、自然阴影。只有一个背面完整人物，无文字或其他视图。"
+      },
+      "_meta": {
+        "title": "通用背面摄影说明"
+      }
+    },
+    "215": {
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": [
+          "214",
+          0
+        ],
+        "string_b": [
+          "216",
+          0
+        ],
+        "delimiter": "\n连续性要求："
+      },
+      "_meta": {
+        "title": "StringConcatenate"
+      }
+    },
+    "216": {
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "保持同一人物的脸型、发型、身形与服装细节。"
+      },
+      "_meta": {
+        "title": "04 连续性要求｜发型、衣服、左右侧特征"
+      }
+    },
+    "card-text-rgb": {
+      "class_type": "SplitImageWithAlpha",
+      "inputs": {
+        "image": [
+          "120",
+          0
+        ]
+      },
+      "_meta": {
+        "title": "取文字颜色"
+      }
+    },
+    "card-caption": {
+      "class_type": "ImageCompositeMasked",
+      "inputs": {
+        "destination": [
+          "131",
+          0
+        ],
+        "source": [
+          "card-text-rgb",
+          0
+        ],
+        "mask": [
+          "120",
+          1
+        ],
+        "x": 0,
+        "y": 0,
+        "resize_source": false
+      },
+      "_meta": {
+        "title": "合成题注"
+      }
+    }
+  },
+  "bindings": {
+    "kind": "image",
+    "prompt": "[\"4\",\"value\"]",
+    "output": "100",
+    "images": [],
+    "controls": [
+      "[\"1\",\"value\"]",
+      "[\"2\",\"value\"]",
+      "[\"3\",\"value\"]",
+      "[\"216\",\"value\"]"
+    ],
+    "outputSize": [
+      2560,
+      1440
+    ],
+    "promptLabel": "角色外貌与服装",
+    "fixedSeeds": true
+  }
+}

@@ -240,7 +240,9 @@ export async function readPresets(inventory) {
   const imported = presets
     .filter((p) => p.environment === environment)
     .sort((a, b) => a.name.localeCompare(b.name));
-  return [...imported, ...bundledPresets, ...videoModelPresets(inventory)].map((p) => ({
+  const importedIds = new Set(imported.map(p => p.id));
+  const builtins = bundledPresets.filter(p => !importedIds.has(p.id));
+  return [...imported, ...builtins, ...videoModelPresets(inventory)].map((p) => ({
     ...p,
     fileMap:
       mappings.find((m) => m.preset === p.id && m.environment === environment)
@@ -285,7 +287,7 @@ export function describePreset(preset, definitions) {
     (f) =>
       f.type === "choice" &&
       !(preset.id === secondPassRestoreId && f.input === "sampler_name") &&
-      (/_name$/.test(f.input) ||
+      (f.input === "font_file" || /_name$/.test(f.input) ||
         /\.(safetensors|ckpt|gguf|pth|pt|bin)$/i.test(String(f.value))),
   );
   for (const f of dependencies) {

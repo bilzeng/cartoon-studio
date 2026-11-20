@@ -1,5 +1,6 @@
 import { Select } from "./Select";
 import { workflowNeeds } from "../shared/canvas";
+import { h3VideoModelId } from "../shared/h3-video";
 import React, { useRef, useState } from "react";
 import {
   Boxes,
@@ -160,6 +161,7 @@ export function ModelPicker({
                               {m.workflow && (
                                 <small>
                                   {m.baseModel || workflowNeeds(m)}
+                                  {m.id === h3VideoModelId && " · 原生分辨率"}
                                   {missing.length
                                     ? " · 待匹配 " + missing.length + " 个文件"
                                     : ""}

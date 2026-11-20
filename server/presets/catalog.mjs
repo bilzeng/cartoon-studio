@@ -18,6 +18,7 @@ import {
 } from "../../shared/image-restore.js";
 const load = (file) => JSON.parse(readFileSync(new URL(file, import.meta.url)));
 const character = load("character.json");
+const captionedCharacter = load("character-captioned.json");
 const h3 = load("h3.json");
 const field = (id, name = "value") => JSON.stringify([String(id), name]);
 const characterBindings = {
@@ -153,6 +154,7 @@ function imageRestorePreset(id, algorithm, upscaleNodes, enhancedSource, size, s
 }
 
 export const bundledPresets = [
+  captionedCharacter,
   secondPassRestore,
   imageRestorePreset(restoreModelId, "RealESRGAN", {
     model: { class_type: "UpscaleModelLoader", inputs: { model_name: "RealESRGAN_x4plus.pth" } },
