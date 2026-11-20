@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createServer as httpServer } from "node:http";
+import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -33,7 +35,7 @@ test("节点内优化提示词、保留进行中的任务和行内素材预览",
     { text: source, videoModel: "test-video" },
   );
   const image = makeNode("image", { x: 600, y: 0 }, {
-    text: "雨中的灯塔", imageModel: "qwen",
+    text: "雨中的灯塔", imageModel: "qwen", assetId: "coast",
     imageLoras: ["风格甲", "风格乙"].map(name => ({ name, strength: 1 })),
   });
   const audio = makeNode("audio", { x: 1200, y: 0 }, { text: "远处的海浪", audioModel: "sound" });
@@ -63,21 +65,31 @@ test("节点内优化提示词、保留进行中的任务和行内素材预览",
       },
     }),
   );
-  const profiles = [
-    { id: "p", name: "分镜助手", model: "test" },
-    { id: "q", name: "美术指导", model: "test-2" },
-  ];
-  await page.route("**/api/prompt-models", (r) => r.fulfill({ json: profiles }));
   let reply = result.trim();
   const calls = [];
   let hold;
   let fail = false;
-  await page.route("**/api/prompt-optimizer/run", async (r) => {
-    calls.push(r.request().postDataJSON());
-    if (hold) await hold;
-    if (fail) return r.fulfill({ status: 502, json: { error: "服务暂时不可用" } });
-    await r.fulfill({ json: { text: reply, modelName: "美术指导" } });
+  const provider = httpServer(async (req,res) => {
+    if (req.url !== "/chat/completions") { res.writeHead(404).end(); return; }
+    req.resume();
+    const text = reply;
+    if (hold) await Promise.race([hold,once(res,"close")]);
+    if (res.destroyed) return;
+    if (fail) { res.writeHead(502).end(); return; }
+    res.setHeader("Content-Type","application/json");
+    res.end(JSON.stringify({choices:[{message:{content:text}}]}));
   });
+  provider.listen(0,"127.0.0.1");
+  await once(provider,"listening");
+  t.after(() => provider.close());
+  const baseUrl = "http://127.0.0.1:" + provider.address().port;
+  const profileIds = [];
+  for (const [name,model] of [["分镜助手","test"],["美术指导","test-2"]]) {
+    const r = await page.request.post(base+"api/prompt-models",{data:{name,model,protocol:"chat",baseUrl}});
+    assert.equal(r.status(),200);
+    profileIds.push((await r.json()).id);
+  }
+  page.on("request",r => { if (r.url().endsWith("/api/prompt-optimizer/run")) calls.push(r.postDataJSON()); });
   const button = (name) => page.getByRole("button", { name, exact: true });
   const optimize = button("优化提示词");
   const open = async (node) => {
@@ -93,7 +105,7 @@ test("节点内优化提示词、保留进行中的任务和行内素材预览",
     assert.equal(data.text, reply);
     assert.equal(data[node.data.kind + "PromptOptimization"], undefined);
     assert.equal(calls.at(-1).context.scene, expectedSource);
-    assert.equal(calls.at(-1).profileId, "q");
+    assert.equal(calls.at(-1).profileId, profileIds[1]);
     assert.equal(await page.locator("dialog[open]").count(), 0);
   }
   await open(video);
@@ -160,7 +172,7 @@ test("节点内优化提示词、保留进行中的任务和行内素材预览",
   await runAndSave(image, "细雨中，暖光穿过海雾。");
   fail = true;
   await optimize.click();
-  await page.getByRole("alert").filter({ hasText: "服务暂时不可用" }).waitFor();
+  await page.getByRole("alert").filter({ hasText: "模型服务返回 HTTP 502" }).waitFor();
   assert.equal(await editor.innerText(), first);
   fail = false;
   const selectNode = (node) => page.locator(`.react-flow__node[data-id="${node.id}"] .flow-tile-face`).click();
@@ -179,6 +191,14 @@ test("节点内优化提示词、保留进行中的任务和行内素材预览",
   await editor.waitFor({ state: "detached" });
   await button("画布").click();
   await waiting.waitFor();
+  const taskCount = calls.length;
+  await page.goto(base + "#home");
+  await editor.waitFor({state:"detached"});
+  await open(image);
+  await waiting.waitFor();
+  await page.reload();
+  await waiting.waitFor();
+  assert.equal(calls.length,taskCount);
   await selectNode(audio);
   assert.equal(await waiting.count(), 0);
   const completed = page.waitForResponse(r => r.request().method() === "PUT" &&

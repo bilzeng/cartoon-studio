@@ -431,10 +431,19 @@ html:has(.flow-workspace) {
 }
 .composer-chips {
   position: relative;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   column-gap: 4px;
   min-height: 27px;
   padding-inline-end: 35px;
+}
+.composer-tool-items {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px 4px;
+  min-width: 0;
 }
 .composer-chips button {
   background: var(--button-face);

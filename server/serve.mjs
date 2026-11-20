@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { access, realpath } from "node:fs/promises";
 import { studioApi } from "./api.mjs";
 import { root, jobs } from "./storage.mjs";
+import { optimizingPrompts } from "./prompt-optimizer.mjs";
 import { builtVersion, holdRelease } from "./studio-update.mjs";
 
 const app = express(),
@@ -19,7 +20,8 @@ if (process.env.STUDIO_INSTALL_ROOT && path.resolve(root) !== path.resolve(proce
 let state = { phase: "starting", message: "正在启动工作室…", version: "" };
 let server, draining = false, pending = 0;
 app.use((req, res, next) => {
-  if (req.method === "POST" && /^\/api\/projects\/[^/]+\/(generate|export)\/?$/.test(req.path)) {
+  if (req.method === "POST" && (/^\/api\/projects\/[^/]+\/(generate|export)\/?$/.test(req.path) ||
+      req.path === "/api/prompt-optimizer/run")) {
     if (draining || (process.env.STUDIO_EXACT_PORT && ["starting", "restarting"].includes(state.phase))) return res.status(503).json({ error: "工作室即将重启，请更新完成后再提交任务。" });
     pending++;
     res.once("close", () => pending--);
@@ -43,7 +45,7 @@ process.on("message", async msg => {
   if (msg.type !== "drain" || draining) return;
   draining = true;
   try {
-    while (pending || (await jobs()).some(j => ["running", "queued", "waiting"].includes(j.status)))
+    while (pending || optimizingPrompts() || (await jobs()).some(j => ["running", "queued", "waiting"].includes(j.status)))
       await new Promise(r => setTimeout(r, 750));
     server.close(() => process.exit(0));
   } catch {

@@ -76,7 +76,7 @@ function Workspace({ route, assets, refresh, notify, home }) {
   const { board, edit, flush, status, error } = useBoard(id, kind, notify);
   const queueLabels = useCanvasResults(board, edit, refresh);
   const [canvasEngine, setCanvasEngine] = useState(null);
-  const promptOptimizations = usePromptOptimizations({ board, assets, engine: canvasEngine, edit, notify });
+  const promptOptimizations = usePromptOptimizations({ board, assets, engine: canvasEngine, edit, flush, notify });
   useEffect(() => {
     let active = true;
     let generation = 0;

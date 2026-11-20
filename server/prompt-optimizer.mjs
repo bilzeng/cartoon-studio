@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { changeSettings, settings } from "./files.mjs";
-import { fail } from "./storage.mjs";
+import { fail, readProject } from "./storage.mjs";
 import {
   h3Opening,
   h3BaseFields,
@@ -11,6 +11,16 @@ import {
 } from "../shared/prompt-optimizer.js";
 
 const protocols = ["chat", "responses", "anthropic", "gemini"];
+const optimizationTasks = new Map();
+const taskKey = (project,node) => JSON.stringify([project,node]);
+function publicTask({controller,projectId,finished,...task}) { return task; }
+function pruneTasks() {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [key,task] of optimizationTasks) if (task.finished < cutoff) optimizationTasks.delete(key);
+}
+export function optimizingPrompts() {
+  return [...optimizationTasks.values()].some(task => task.status === "running");
+}
 const publicProfile = ({ id, name, model, baseUrl, protocol, key }) => ({
   id,
   name,
@@ -441,6 +451,26 @@ export function registerOptimizer(api) {
       (p) => p.id === req.body.profileId,
     );
     if (!profile) throw fail("请选择已配置的提示词模型", 404);
+    const {projectId,nodeId,basis} = req.body;
+    if (projectId !== undefined) {
+      if (!scalar(projectId,160) || !scalar(nodeId,160) || !scalar(basis,120000))
+        throw fail("优化任务缺少有效的项目和节点");
+      const board = await readProject(projectId);
+      const node = board.nodes.find(n => n.id === nodeId && n.data.kind === context.kind);
+      if (!node) throw fail("优化的节点已不存在",404);
+      pruneTasks();
+      const key = taskKey(projectId,nodeId);
+      const existing = optimizationTasks.get(key);
+      if (existing?.status === "running") return res.status(202).json(publicTask(existing));
+      const controller = new AbortController();
+      const task = {id:randomUUID(),projectId,nodeId,basis,started:Date.now(),status:"running",controller};
+      optimizationTasks.set(key,task);
+      void complete(profile,context,controller.signal).then(
+        text => { if (!controller.signal.aborted) Object.assign(task,{status:"done",text,modelName:profile.name}); },
+        error => { if (!controller.signal.aborted) Object.assign(task,{status:"failed",error:error.message}); },
+      ).finally(() => { task.finished = Date.now(); });
+      return res.status(202).json(publicTask(task));
+    }
     if (res.destroyed) return;
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -453,5 +483,18 @@ export function registerOptimizer(api) {
     } finally {
       res.off("close", abort);
     }
+  });
+  api.get("/projects/:id/prompt-optimizations", (req,res) => {
+    pruneTasks();
+    res.json([...optimizationTasks.values()].filter(task => task.projectId === req.params.id).map(publicTask));
+  });
+  api.delete("/projects/:id/prompt-optimizations/:nodeId/:taskId", (req,res) => {
+    const key = taskKey(req.params.id,req.params.nodeId);
+    const task = optimizationTasks.get(key);
+    if (task?.id === req.params.taskId) {
+      task.controller.abort();
+      optimizationTasks.delete(key);
+    }
+    res.json({ok:true});
   });
 }

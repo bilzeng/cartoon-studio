@@ -4,91 +4,117 @@ import { api } from "./client";
 import { canvasModelInputs, nodePromptOptimization } from "./canvasModelInputs";
 
 function readRequest(board, nodeId, assets, engine) {
-  const node = board?.nodes.find((candidate) => candidate.id === nodeId);
+  const node = board?.nodes.find(candidate => candidate.id === nodeId);
   if (!node) return null;
-  const media = canvasModelInputs(board, node, assets, engine);
-  const optimization = nodePromptOptimization(board, node, media);
-  return optimization && { ...optimization, node, resolved: media.resolved };
+  const media = canvasModelInputs(board,node,assets,engine);
+  const optimization = nodePromptOptimization(board,node,media);
+  return optimization && {...optimization,node,resolved:media.resolved};
 }
 
-export function usePromptOptimizations({ board, assets, engine, edit, notify }) {
-  const requests = useRef(new Map());
-  const runtime = useRef(null);
-  runtime.current = { board, assets, engine };
-  const [states, setStates] = useState({});
+export function usePromptOptimizations({ board, assets, engine, edit, flush, notify }) {
+  const project = board?.id;
+  const endpoint = "/projects/" + encodeURIComponent(project || "") + "/prompt-optimizations";
+  const submitting = useRef(new Map());
+  const applied = useRef(new Set());
+  const [tasks,setTasks] = useState([]);
+  const [local,setLocal] = useState({});
+  const [version,readAgain] = useState(0);
 
-  function finish(task, error) {
-    if (requests.current.get(task.nodeId) !== task) return;
-    requests.current.delete(task.nodeId);
-    setStates((previous) => {
-      const next = { ...previous };
-      if (error) next[task.nodeId] = { error };
-      else delete next[task.nodeId];
+  useEffect(() => {
+    if (!project) return;
+    let live = true, timer;
+    async function poll() {
+      try {
+        const rows = await api(endpoint);
+        if (!live) return;
+        setTasks(rows);
+        if (!rows.some(task => task.status === "running")) return;
+      } catch {
+        if (!live) return;
+      }
+      timer = setTimeout(poll,1250);
+    }
+    function resume() { clearTimeout(timer); readAgain(n => n + 1); }
+    void poll();
+    window.addEventListener("focus",resume);
+    return () => { live = false; clearTimeout(timer); window.removeEventListener("focus",resume); };
+  },[endpoint,project,version]);
+
+  useEffect(() => {
+    if (!project || !engine) return;
+    for (const task of tasks) {
+      if (task.status !== "done" || applied.current.has(task.id)) continue;
+      const request = readRequest(board,task.nodeId,assets,engine);
+      if (!request || request.basis !== task.basis) continue;
+      applied.current.add(task.id);
+      const issue = optimizedPromptError(task.text,request.context);
+      if (issue) {
+        setLocal(prev => ({...prev,[task.nodeId]:{error:issue}}));
+        continue;
+      }
+      let title;
+      edit(latest => {
+        const current = readRequest(latest,task.nodeId,assets,engine);
+        if (current?.basis !== task.basis) return latest;
+        const {node,context,resolved} = current;
+        const changes = optimizedNodeChanges(node.data,context,resolved,task.text.trim());
+        title = node.data.title;
+        return {...latest,nodes:latest.nodes.map(n => n.id === task.nodeId ?
+          {...n,data:{...n.data,...changes,[n.data.kind+"PromptOptimization"]:undefined}} : n)};
+      });
+      if (title !== undefined) notify(title+" · 提示词已更新");
+    }
+  },[board,assets,engine,tasks,project,edit,notify]);
+
+  function localState(nodeId,state) {
+    setLocal(prev => {
+      const next = {...prev};
+      if (state) next[nodeId] = state;
+      else delete next[nodeId];
       return next;
     });
   }
-  function cancel(nodeId) {
-    const task = requests.current.get(nodeId);
-    if (!task) return;
-    task.controller.abort();
-    finish(task);
+  function removeTask(task) {
+    return api(endpoint + "/" + encodeURIComponent(task.nodeId) + "/" + encodeURIComponent(task.id),"DELETE");
   }
-
-  useEffect(() => {
-    for (const [nodeId, task] of requests.current) {
-      if (readRequest(board, nodeId, assets, engine)?.basis !== task.basis) cancel(nodeId);
-    }
-  }, [board, assets, engine]);
-  useEffect(() => {
-    const active = requests.current;
-    return () => {
-      for (const task of active.values()) task.controller.abort();
-      active.clear();
-    };
-  }, []);
-
-  async function start(nodeId, profileId) {
-    if (requests.current.has(nodeId)) return;
-    const initial = readRequest(board, nodeId, assets, engine);
-    if (!initial || initial.inputError) return;
-    const controller = new AbortController();
-    const task = { nodeId, controller, basis: initial.basis };
-    requests.current.set(nodeId, task);
-    const started = Date.now();
-    setStates((previous) => ({ ...previous, [nodeId]: { started } }));
-    const timeout = setTimeout(() => {
-      controller.abort();
-      finish(task, "提示词优化等待超时，请检查模型服务后重试。");
-    }, 190000);
+  async function start(nodeId,profileId) {
+    if (submitting.current.has(nodeId) || tasks.some(task => task.nodeId === nodeId && task.status === "running")) return;
+    const request = readRequest(board,nodeId,assets,engine);
+    if (!request || request.inputError) return;
+    const operation = {cancelled:false};
+    submitting.current.set(nodeId,operation);
+    localState(nodeId,{started:Date.now()});
     try {
-      const { text } = await api("/prompt-optimizer/run", "POST", {
-        profileId, context: initial.context,
-      }, controller.signal);
-      if (controller.signal.aborted) return;
-      const current = runtime.current;
-      if (readRequest(current.board, nodeId, current.assets, current.engine)?.basis !== task.basis) return;
-      const issue = optimizedPromptError(text, initial.context);
-      if (issue) return finish(task, issue);
-      let applied;
-      edit((latest) => {
-        const request = readRequest(latest, nodeId, current.assets, current.engine);
-        if (request?.basis !== task.basis) return latest;
-        const { node, context, resolved } = request;
-        const changes = optimizedNodeChanges(node.data, context, resolved, text.trim());
-        applied = node.data.title;
-        return { ...latest, nodes: latest.nodes.map((n) => n.id === nodeId
-          ? { ...n, data: { ...n.data, ...changes, [n.data.kind + "PromptOptimization"]: undefined } }
-          : n) };
-      });
-      if (applied !== undefined) notify(applied + " · 提示词已更新");
-    } catch (e) {
-      if (!controller.signal.aborted)
-        finish(task, e instanceof TypeError ? "与工作室的连接中断，请重试优化。" : e.message);
+      await flush();
+      if (operation.cancelled) return;
+      const task = await api("/prompt-optimizer/run","POST",{profileId,projectId:project,nodeId,
+        context:request.context,basis:request.basis});
+      if (operation.cancelled) await removeTask(task);
+      else setTasks(rows => [...rows.filter(row => row.nodeId !== nodeId),task]);
+      localState(nodeId);
+    } catch (error) {
+      if (!operation.cancelled) localState(nodeId,{error:error.message});
     } finally {
-      clearTimeout(timeout);
-      finish(task);
+      submitting.current.delete(nodeId);
+      readAgain(n => n + 1);
     }
   }
-
-  return { states, start, cancel };
+  async function cancel(nodeId) {
+    const operation = submitting.current.get(nodeId);
+    if (operation) operation.cancelled = true;
+    localState(nodeId);
+    const task = tasks.find(t => t.nodeId === nodeId && t.status === "running");
+    if (!task) return;
+    try {
+      await removeTask(task);
+      setTasks(rows => rows.filter(row => row.id !== task.id));
+    } catch (error) { notify(error.message); }
+    finally { readAgain(n => n + 1); }
+  }
+  const states = {...local};
+  for (const task of tasks) {
+    if (task.status === "running") states[task.nodeId] = {started:task.started};
+    else if (task.status === "failed" && !states[task.nodeId]) states[task.nodeId] = {error:task.error};
+  }
+  return {states,start,cancel};
 }

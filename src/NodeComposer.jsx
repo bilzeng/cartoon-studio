@@ -447,95 +447,103 @@ export function NodeComposer({
       }}
     >
       <div className="composer-chips">
-        {!swapping && ["image", "video", "shot", "audio"].includes(kind) && (
-          <button onClick={() => file.current.click()} disabled={busy}>
-            <Plus size={15} />
-            上传
-          </button>
-        )}
-        <input
-          type="file"
-          ref={file}
-          hidden
-          accept={restoring || card ? "image/*" : generated ? "image/*,video/*,audio/*" : "image/*,video/*"}
-          multiple={generated && !card}
-          onChange={(e) =>
-            generated &&
-            (kind === "image" || model?.workflow || e.target.files.length > 1)
-              ? uploadReferences(Array.from(e.target.files))
-              : upload(e.target.files[0])
-          }
-        />
-        {toggle(
-          "links",
-          Layers,
-          "画布参考" +
-            (inputs.upstream.length ? " · " + inputs.upstream.length : ""),
-        )}
-        {canCompare && <button type="button" onClick={() => setPreviewAsset(restoredAsset)}>
-          <Columns2 size={14} /> {upscalingVideo ? "对比原片" : "对比原图"}
-        </button>}
-        {kind === "image" &&
-          !restoring &&
-          (data.assetId || inputs.guides.length > 0 || data.guideAssetId) && (
+        <div className="composer-tool-items">
+          {!swapping && ["image", "video", "shot", "audio"].includes(kind) && (
+            <button onClick={() => file.current.click()} disabled={busy}>
+              <Plus size={15} />
+              上传
+            </button>
+          )}
+          <input
+            type="file"
+            ref={file}
+            hidden
+            accept={restoring || card ? "image/*" : generated ? "image/*,video/*,audio/*" : "image/*,video/*"}
+            multiple={generated && !card}
+            onChange={(e) =>
+              generated &&
+              (kind === "image" || model?.workflow || e.target.files.length > 1)
+                ? uploadReferences(Array.from(e.target.files))
+                : upload(e.target.files[0])
+            }
+          />
+          {toggle(
+            "links",
+            Layers,
+            "画布参考" +
+              (inputs.upstream.length ? " · " + inputs.upstream.length : ""),
+          )}
+          {canCompare && <button type="button" onClick={() => setPreviewAsset(restoredAsset)}>
+            <Columns2 size={14} /> {upscalingVideo ? "对比原片" : "对比原图"}
+          </button>}
+          {kind === "image" &&
+            !restoring &&
+            (data.assetId || inputs.guides.length > 0 || data.guideAssetId) && (
+              <button
+                onClick={startRestore}
+                disabled={!engine || busy || pending || !!data.pendingCanvasJob}
+              >
+                <ScanLine size={14} /> 高清修复
+              </button>
+            )}
+          {kind === "image" && data.assetId && !card && engine?.imageModels?.some(m => m.id === characterCardId) && (
+            <button type="button" disabled={busy || pending} onClick={() =>
+              openLinkedMediaTool(node, { title: "角色卡", imageModel: characterCardId, canvasRef: id })
+            }><BookImage size={14} /> 制作角色卡</button>
+          )}
+          {kind === "image" && poseSwap && !swapping && !restoring && (
+            <button type="button" onClick={startPoseSwap} disabled={busy || pending || !!data.pendingCanvasJob}>
+              <Shirt size={14} /> 姿势换装
+            </button>
+          )}
+          {kind === "video" && data.assetId && !upscalingVideo && (
             <button
-              onClick={startRestore}
-              disabled={!engine || busy || pending || !!data.pendingCanvasJob}
+              onClick={() => {
+                const preset = [videoUpscale2kId, videoUpscale4kId]
+                  .map(id => videos.find(m => m.id === id))
+                  .find(m => m && !missingFiles(m).length);
+                if (!preset)
+                  return showError("当前环境缺少 RelayVSR 视频超分节点或模型，请检查「模型与工作流」。");
+                showError("");
+                openLinkedMediaTool(node, {
+                  title: "视频高清修复", videoModel: preset.id,
+                  videoRestoreSource: { nodeId: id, assetId: data.assetId },
+                });
+              }}
+              disabled={busy || pending || !!data.pendingCanvasJob}
             >
               <ScanLine size={14} /> 高清修复
             </button>
           )}
-        {kind === "image" && data.assetId && !card && engine?.imageModels?.some(m => m.id === characterCardId) && (
-          <button type="button" disabled={busy || pending} onClick={() =>
-            openLinkedMediaTool(node, { title: "角色卡", imageModel: characterCardId, canvasRef: id })
-          }><BookImage size={14} /> 制作角色卡</button>
-        )}
-        {kind === "image" && poseSwap && !swapping && !restoring && (
-          <button type="button" onClick={startPoseSwap} disabled={busy || pending || !!data.pendingCanvasJob}>
-            <Shirt size={14} /> 姿势换装
-          </button>
-        )}
-        {kind === "video" && data.assetId && !upscalingVideo && (
-          <button
-            onClick={() => {
-              const preset = [videoUpscale2kId, videoUpscale4kId]
-                .map(id => videos.find(m => m.id === id))
-                .find(m => m && !missingFiles(m).length);
-              if (!preset)
-                return showError("当前环境缺少 RelayVSR 视频超分节点或模型，请检查「模型与工作流」。");
-              showError("");
-              openLinkedMediaTool(node, {
-                title: "视频高清修复", videoModel: preset.id,
-                videoRestoreSource: { nodeId: id, assetId: data.assetId },
-              });
-            }}
-            disabled={busy || pending || !!data.pendingCanvasJob}
-          >
-            <ScanLine size={14} /> 高清修复
-          </button>
-        )}
-        {generated && !restoring && !upscalingVideo && !swapping && !card && (
-          <button onClick={() => menu("mark")} aria-expanded={panel === "mark"}>
-            <MapPin size={14} />
-            标记
-          </button>
-        )}
-        {generated &&
-          !restoring && !upscalingVideo && !swapping && !card &&
-          toggle(
-            "style",
-            Palette,
-            "风格" +
-              (data.imageLoras?.length ? " · " + data.imageLoras.length : ""),
+          {generated && !restoring && !upscalingVideo && !swapping && !card && (
+            <button onClick={() => menu("mark")} aria-expanded={panel === "mark"}>
+              <MapPin size={14} />
+              标记
+            </button>
           )}
-        {!restoring && !upscalingVideo && !swapping && !card && (!generated || model?.hasPrompt !== false) && (
-          <button type="button" aria-haspopup="dialog" aria-expanded={panel === "prompts"}
-            onClick={() => menu("prompts")}>
-            <FileText size={14} />预设提示词
-          </button>
-        )}
-        {optimization && <PromptOptimizer
-          inputError={optimization.inputError} started={promptTask?.started}
+          {generated &&
+            !restoring && !upscalingVideo && !swapping && !card &&
+            toggle(
+              "style",
+              Palette,
+              "风格" +
+                (data.imageLoras?.length ? " · " + data.imageLoras.length : ""),
+            )}
+          {!restoring && !upscalingVideo && !swapping && !card && (!generated || model?.hasPrompt !== false) && (
+            <button type="button" aria-haspopup="dialog" aria-expanded={panel === "prompts"}
+              onClick={() => menu("prompts")}>
+              <FileText size={14} />预设提示词
+            </button>
+          )}
+          {kind === "shot" && (
+            <button onClick={() => open("refs")}>
+              <BookImage size={14} />
+              设定引用
+            </button>
+          )}
+        </div>
+        {(optimization || promptTask?.started !== undefined) && <PromptOptimizer
+          inputError={optimization?.inputError} started={promptTask?.started}
           onStart={(profileId) => {
             showError("");
             setPanel("");
@@ -543,12 +551,6 @@ export function NodeComposer({
           }}
           onCancel={() => promptOptimizations.cancel(id)}
         />}
-        {kind === "shot" && (
-          <button onClick={() => open("refs")}>
-            <BookImage size={14} />
-            设定引用
-          </button>
-        )}
         <button
           className="chip-more"
           onClick={() => menu("more")}
