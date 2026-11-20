@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 import { createServer } from "vite";
 import { makeNode } from "../../shared/studio.js";
 
-test("拖动时节点与连线持续可见，只保存落点；端口能吸附并尊重减少动态效果", async (t) => {
+test("拖动时节点与连线持续可见，只保存落点；端口能吸附并保留流光", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "studio-canvas-"));
   process.env.STUDIO_DATA_DIR = dir;
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -195,14 +195,8 @@ test("拖动时节点与连线持续可见，只保存落点；端口能吸附�
   await page.keyboard.press("Enter");
   await palette.waitFor();
   assert.equal(
-    await light.evaluate((el) => getComputedStyle(el).display),
-    "none",
-  );
-  assert.equal(
-    await port
-      .locator(".flow-port-cap")
-      .evaluate((el) => getComputedStyle(el).transform),
-    "none",
+    await light.evaluate((el) => getComputedStyle(el).animationName),
+    "wire-travel",
   );
   const counts = (await read()).edges.length;
   await page.keyboard.press("Escape");

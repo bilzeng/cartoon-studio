@@ -6,7 +6,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { createServer } from "vite";
 
-test("首页新建入口保持整行宽度，支持动效、键盘和减少动态效果", async (t) => {
+test("首页新建入口保持整行宽度，动效和键盘操作独立于系统设置", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "studio-home-"));
   process.env.STUDIO_DATA_DIR = dir;
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -43,8 +43,7 @@ test("首页新建入口保持整行宽度，支持动效、键盘和减少动�
   await name.waitFor({ state: "detached" });
   assert.ok(await launch.evaluate(el => el === document.activeElement));
   await page.emulateMedia({ reducedMotion: "reduce" });
-  assert.equal(await ripple(), "none");
-  await page.waitForFunction(() => getComputedStyle(document.querySelector(".launch-plus")).transform === "none");
+  assert.equal(await ripple(), "launch-ripple");
   await page.keyboard.press("Enter");
   await name.fill("首页画布");
   await name.press("Enter");

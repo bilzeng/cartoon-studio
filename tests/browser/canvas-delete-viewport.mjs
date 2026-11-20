@@ -199,9 +199,14 @@ test("删除、撤销和确认删除保持相机位置，画布手势不会放�
   await page.route(imagePath + "/generate", (r) =>
     r.fulfill({ status: 202, json: { id: "new-image" } }),
   );
-  await page.route(imagePath + "/nodes/*/jobs*", (r) =>
-    r.fulfill({ json: job ? [job] : [] }),
-  );
+  let failJobRead = false;
+  await page.route(imagePath + "/nodes/*/jobs*", (r) => {
+    if (failJobRead) {
+      failJobRead = false;
+      return r.fulfill({ status: 503, json: { error: "暂时断开" } });
+    }
+    return r.fulfill({ json: job ? [job] : [] });
+  });
   await page.route("**/api/jobs?*ids=*", r => r.fulfill({ json: job ? [job] : [] }));
   await page.goto(base + "#project/" + imageProject.id + "?node=" + image.id);
   const tileFace = page.locator(".flow-tile-face");
@@ -226,15 +231,21 @@ test("删除、撤销和确认删除保持相机位置，画布手势不会放�
   assert.equal(await overlay.innerText(), "");
   const timer = page.locator(".generation-result").getByText(/已用 .*执行预计还需约/);
   await timer.waitFor();
+  failJobRead = true;
+  const reconnecting = page.getByRole("status").filter({ hasText: "暂时无法读取生成状态" });
+  await reconnecting.waitFor();
+  await reconnecting.waitFor({ state: "detached" });
   const firstReading = await timer.textContent();
   await page.waitForFunction(text => document.querySelector(".generation-result .job-timing")?.textContent !== text, firstReading);
   await page.setViewportSize({ width: 390, height: 780 });
   await page.emulateMedia({ reducedMotion: "reduce" });
+  const spinner = page.locator(".generation-result .generation-spin");
+  assert.equal(await spinner.evaluate(el => getComputedStyle(el).animationDuration), "1s");
   assert.equal(
     await overlay.evaluate(
       (el) => getComputedStyle(el, "::before").animationName,
     ),
-    "none",
+    "tile-generation-drift",
   );
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({ reducedMotion: "no-preference" });

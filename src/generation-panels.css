@@ -762,16 +762,13 @@
   outline-offset: 2px;
 }
 .generation-spin {
+  flex-shrink: 0;
+  transform-origin: center;
   animation: generation-spin 1s linear infinite;
 }
 @keyframes generation-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .generation-spin {
-    animation: none;
   }
 }
 @media (max-width: 620px) {

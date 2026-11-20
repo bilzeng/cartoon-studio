@@ -110,6 +110,7 @@ export function NodeComposer({
     [jobs, setJobs] = useState([]),
     [processing, setBusy] = useState(false),
     [tick, poll] = useState(0),
+    [jobSyncFailed, setJobSyncFailed] = useState(false),
     [error, showError] = useState("");
   const busy = processing || droppingImages || submitting;
   const file = useRef(null);
@@ -301,27 +302,33 @@ export function NodeComposer({
   const menu = (name) => setPanel((p) => (p === name ? "" : name));
   useEffect(() => {
     if (!generated) return;
-    let active = true,
-      timer;
-    const pull = async () => {
+    const controller = new AbortController();
+    let timer, initial = true;
+    async function pull() {
       try {
-        await flush();
-        if (!active) return;
-        const rows = await api(
-          "/projects/" + board.id + "/nodes/" + id + "/jobs",
-        );
-        if (!active) return;
+        // Wait for a newly added node to be saved before its first history read.
+        if (initial) await flush();
+        if (controller.signal.aborted) return;
+        const timeout = AbortSignal.timeout?.(10000);
+        const signal = timeout && AbortSignal.any ? AbortSignal.any([controller.signal, timeout]) : controller.signal;
+        const rows = await api("/projects/" + board.id + "/nodes/" + id + "/jobs", "GET", undefined, signal);
+        if (controller.signal.aborted) return;
+        initial = false;
         setJobs(rows);
+        setJobSyncFailed(false);
         if (rows[0]?.status === "done") await refresh();
-        if (active && rows.some((j) => j.status === "running"))
+        if (!controller.signal.aborted && rows.some(j => j.status === "running"))
           timer = setTimeout(pull, 1500);
-      } catch (e) {
-        if (active) showError(e.message);
+      } catch {
+        if (!controller.signal.aborted) {
+          setJobSyncFailed(true);
+          timer = setTimeout(pull, 2500);
+        }
       }
-    };
+    }
     pull();
     return () => {
-      active = false;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [board.id, id, tick, generated, refresh, flush]);
@@ -896,6 +903,7 @@ export function NodeComposer({
       )}
       {adopted && optimization && <small className="opt-applied">{currentOptimization(optimizationContext(data, model, resolved, ratio), adopted)
         ? "本次生成使用优化稿 · " + adopted.modelName : "场景或素材已变化，本次生成使用原文"}</small>}
+      {jobSyncFailed && <small role="status" className="job-timing">暂时无法读取生成状态，正在重试…</small>}
       {generated && latest && (
         <div className="generation-result">
           {latest.status === "running" ? (

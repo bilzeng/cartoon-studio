@@ -162,12 +162,6 @@ html:has(.flow-workspace) {
     transform: translate(9%, -3%) rotate(8deg);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .tile-generation::before,
-  .tile-image.ready {
-    animation: none;
-  }
-}
 .flow-tile-face p {
   color: #d0d0d0;
   align-self: start;
@@ -590,25 +584,6 @@ html:has(.flow-workspace) {
   }
   to {
     stroke-dashoffset: -42;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .flow-workspace .flow-port-cap {
-    transform: none;
-    transition: none;
-  }
-  .flow-workspace .flow-port-cap::after {
-    display: none;
-  }
-  .flow-workspace .flow-wire-light {
-    display: none;
-    animation: none;
-  }
-  .flow-wire-preview .flow-wire-track,
-  .flow-workspace
-    .react-flow__edge:is(.wire-active, :hover, :focus-visible)
-    .react-flow__edge-path {
-    stroke: var(--wire-accent);
   }
 }
 .flow-palette {

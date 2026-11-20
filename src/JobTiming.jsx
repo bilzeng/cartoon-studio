@@ -53,7 +53,8 @@ function StepProgress({ job }) {
       </div>
       {(executing || uploading) && (
         <small>
-          {progressStream === "offline" ? "步骤连接中断，正在重连 · " : ""}
+          {progressStream === "offline" ? "步骤连接中断，正在重连 · "
+            : executing && age >= 30000 ? "正在等待下一步回报 · " : ""}
           {Number.isFinite(age)
             ? "上次更新 " + durationText(age) + "前"
             : "等待服务器回传步骤"}

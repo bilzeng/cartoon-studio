@@ -126,11 +126,16 @@
   border-bottom-left-radius: 0;
   border-left: 0;
 }
-.composer-chips .opt-split .studio-select {
+.composer-chips .opt-split :is(.studio-select, .opt-cancel) {
   width: 26px;
   min-height: 0;
   padding: 0;
   justify-content: center;
+}
+.opt-elapsed {
+  color: #c5cdcd;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .opt-split .studio-select > span {
   display: none;

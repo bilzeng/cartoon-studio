@@ -91,7 +91,7 @@ function validateContext(context) {
   };
 }
 
-async function complete(profile, context) {
+async function complete(profile, context, signal) {
   let system = instructions(context);
   if (context.mode !== "general") {
     const guide = context.mode === "Ref2VA" ? "ref-en.txt" : "base-en.txt";
@@ -116,7 +116,7 @@ async function complete(profile, context) {
       // Portable installs without the optional skill use the built-in mode-specific instructions.
     }
   }
-  return requestCompletion(profile, system, JSON.stringify(context));
+  return requestCompletion(profile, system, JSON.stringify(context), { signal });
 }
 
 function providerHeaders({ key, protocol }) {
@@ -441,9 +441,17 @@ export function registerOptimizer(api) {
       (p) => p.id === req.body.profileId,
     );
     if (!profile) throw fail("请选择已配置的提示词模型", 404);
-    res.json({
-      text: await complete(profile, context),
-      modelName: profile.name,
-    });
+    if (res.destroyed) return;
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    res.once("close", abort);
+    try {
+      const text = await complete(profile, context, controller.signal);
+      if (!controller.signal.aborted) res.json({ text, modelName: profile.name });
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
+    } finally {
+      res.off("close", abort);
+    }
   });
 }

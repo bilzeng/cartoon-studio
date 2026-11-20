@@ -88,9 +88,7 @@ const minCanvasZoom = 0.15;
 const maxCanvasZoom = 8;
 const options = ["text", "image", "video", "audio", "stage", "script", "shot"];
 const motion = () => ({
-  duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ? 0
-    : 210,
+  duration: 210,
   interpolate: "linear",
   ease: (t) => 1 - (1 - t) ** 3,
 });
