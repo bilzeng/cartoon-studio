@@ -1291,11 +1291,13 @@ export function FlowCanvas({
       left + width > box.w + 2);
   function revealEditor() {
     const nextX = clamp(left, 8, box.w - width - 8);
+    const height = composer.current?.offsetHeight ?? composerHeight;
     const nextY = clamp(
       top,
       50,
-      Math.max(50, box.h - composerHeight - marginBottom),
+      Math.max(50, box.h - height - marginBottom),
     );
+    if (nextX === left && nextY === top) return;
     setViewport(
       { x: view.x + nextX - left, y: view.y + nextY - top, zoom: view.zoom },
       motion(),
@@ -1547,12 +1549,14 @@ export function FlowCanvas({
           data-image-drop-active={imageDrop === node.id || undefined}
           style={{
             width,
+            "--composer-max-height": Math.max(160, box.h - marginBottom - 50) + "px",
             transform: "translate3d(" + left + "px," + top + "px,0)",
           }}
         >
           <NodeComposer
             key={node.id}
             droppingImages={uploadingImages === node.id}
+            onPromptResize={revealEditor}
             {...{
               board,
               node,

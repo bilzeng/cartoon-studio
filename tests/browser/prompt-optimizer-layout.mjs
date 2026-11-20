@@ -110,6 +110,31 @@ test("节点内一键替换提示词、选择并记住模型，等待期间的�
   await page.mouse.wheel(0, 240);
   await page.waitForFunction(() => document.querySelector(".picture-editor .cm-scroller").scrollTop > 0);
   assert.equal((await footer.boundingBox()).y, footerTop);
+  const grip = page.getByRole("separator", { name: "调整提示词框高度" });
+  const locate = button("定位编辑器");
+  if (await locate.isVisible()) {
+    await locate.click();
+    await locate.waitFor({ state: "hidden" });
+  }
+  const { x, y, width, height } = await grip.boundingBox();
+  await page.mouse.move(x + width / 2, y + height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x + width / 2, y + height / 2 + 88, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForFunction(initial => document.querySelector(".cm-scroller").clientHeight > initial + 60, longHeight);
+  await page.waitForFunction(() => document.querySelector(".generation-footer").getBoundingClientRect().bottom < innerHeight - 55);
+  await grip.dblclick();
+  assert.equal(await scroller.evaluate(el => el.clientHeight), longHeight);
+  const afterResize = await (await page.request.get(base + "api/projects/" + board.id)).json();
+  assert.equal(afterResize.nodes.find(n => n.id === video.id).data.text, result.trim());
+  await page.setViewportSize({ width: 390, height: 740 });
+  await page.waitForFunction(() => document.querySelector(".composer-anchor").offsetWidth < 390);
+  await grip.press("ArrowDown");
+  await page.waitForFunction(initial => document.querySelector(".cm-scroller").clientHeight > initial, longHeight);
+  await page.waitForFunction(() => document.querySelector(".generation-footer").getBoundingClientRect().bottom <= innerHeight - 90);
+  await grip.press("Home");
+  assert.equal(await scroller.evaluate(el => el.clientHeight), longHeight);
+  await page.setViewportSize({ width: 1366, height: 680 });
   for (const [node, text] of [[image, "细雨中，暖光穿过海雾。"], [audio, "远处海浪拍岸，低沉而疏缓。"]]) {
     reply = text;
     await open(node);
@@ -136,6 +161,13 @@ test("节点内一键替换提示词、选择并记住模型，等待期间的�
   assert.ok(await waiting.isDisabled());
   assert.equal(await waiting.locator(".generation-spin").evaluate(el => getComputedStyle(el).animationDuration), "1s");
   await waiting.getByText(/[1-9] 秒/).waitFor();
+  // Even when tools wrap, the menu remains aligned with the first row.
+  const more = button("节点操作");
+  const firstTool = button("上传");
+  assert.ok(Math.abs((await more.boundingBox()).y - (await firstTool.boundingBox()).y) <= 2);
+  await more.click();
+  assert.equal(await more.getAttribute("aria-expanded"), "true");
+  await more.click();
   await editor.fill("我刚改好的文案");
   release();
   hold = null;

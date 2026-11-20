@@ -26,6 +26,8 @@ import {
 const replaceRefs = StateEffect.define();
 const externalText = Transaction.remote;
 const maxLength = 40000;
+const minPromptHeight = 24;
+const maxPromptHeight = 420;
 
 function thumbnail(kind, url) {
   if (kind === "audio") {
@@ -140,12 +142,25 @@ export function ImagePrompt({
   unlink,
   incoming,
   groupSources,
+  onResizeEnd,
 }) {
   const host = useRef(null),
     editor = useRef(null),
     props = useRef(null);
   props.current = { data, set, resolved };
   const [preview, setPreview] = useState(null);
+  const [height, setHeight] = useState(null);
+  const resize = useRef(null);
+  function fitHeight(value) {
+    setHeight(Math.min(maxPromptHeight, Math.max(minPromptHeight, value)));
+  }
+  function finishResize() {
+    requestAnimationFrame(() => { if (editor.current) onResizeEnd(); });
+  }
+  function resetHeight() {
+    setHeight(null);
+    finishResize();
+  }
   function insertRef(ref) {
     const view = editor.current;
     const { from, to } = view.state.selection.main;
@@ -287,11 +302,45 @@ export function ImagePrompt({
           ))}
         </div>
       )}
-      <div className="picture-editor" ref={host} onClick={(e) => {
-        const token = e.target.closest?.("button[data-token]")?.dataset.token;
-        const ref = token && resolved.refs.find((r) => refToken(r) === token);
-        if (ref) setPreview(ref);
-      }} />
+      <div className="picture-editor" style={{ "--prompt-height": height === null ? undefined : `min(${height}px, 50dvh)` }}>
+        <div ref={host} onClick={(e) => {
+          const token = e.target.closest?.("button[data-token]")?.dataset.token;
+          const ref = token && resolved.refs.find((r) => refToken(r) === token);
+          if (ref) setPreview(ref);
+        }} />
+        <div className="prompt-resize" role="separator" aria-orientation="horizontal" tabIndex={0}
+          aria-label="调整提示词框高度" aria-valuemin={minPromptHeight} aria-valuemax={maxPromptHeight}
+          aria-valuenow={height ?? undefined} aria-valuetext={height === null ? "自动" : undefined}
+          title="上下拖动或用方向键调整高度，双击恢复"
+          onPointerDown={(event) => {
+            if (event.button !== 0 || !editor.current) return;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            resize.current = { pointerId: event.pointerId, y: event.clientY, height: editor.current.scrollDOM.clientHeight };
+          }}
+          onPointerMove={(event) => {
+            const start = resize.current;
+            if (start?.pointerId !== event.pointerId) return;
+            const delta = event.clientY - start.y;
+            if (!delta && !start.moved) return;
+            start.moved = true;
+            fitHeight(start.height + delta);
+          }}
+          onLostPointerCapture={(event) => {
+            if (resize.current?.pointerId !== event.pointerId) return;
+            if (resize.current.moved) finishResize();
+            resize.current = null;
+          }}
+          onDoubleClick={resetHeight}
+          onKeyDown={(event) => {
+            if (!["ArrowUp", "ArrowDown", "Home"].includes(event.key) || !editor.current) return;
+            event.preventDefault();
+            if (event.key === "Home") return resetHeight();
+            const step = event.key === "ArrowDown" ? 24 : -24;
+            fitHeight(editor.current.scrollDOM.clientHeight + step);
+            finishResize();
+          }}
+        />
+      </div>
       {preview && <AssetPreview asset={preview.asset} assets={assets} projectId={projectId} label={refLabel(preview.asset.kind, preview.number)} caption={refLabel(preview.asset.kind, preview.number) + " · " + preview.title} close={() => setPreview(null)}
         insert={() => {
           setPreview(null);

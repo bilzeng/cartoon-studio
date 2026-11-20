@@ -104,6 +104,7 @@ export function NodeComposer({
   refresh,
   flush,
   notify,
+  onPromptResize,
 }) {
   const [previewAsset, setPreviewAsset] = useState(null);
   const [panel, setPanel] = useState(""),
@@ -566,6 +567,7 @@ export function NodeComposer({
           className="chip-more"
           onClick={() => menu("more")}
           aria-label="节点操作"
+          aria-expanded={panel === "more"}
         >
           <MoreHorizontal size={17} />
         </button>
@@ -855,6 +857,7 @@ export function NodeComposer({
             key={model?.promptLabel || kind}
             projectId={board.id}
             promptLabel={model?.hasPrompt && model.promptLabel}
+            onResizeEnd={onPromptResize}
             {...{
               data,
               set,
@@ -912,17 +915,15 @@ export function NodeComposer({
             <Media asset={result} />
           ) : null}
           <div className="generation-result-info">
-            <span className="generation-status" aria-live="polite" title={latest.detail} data-status={latest.status}>
-              {latest.status === "running"
+            <JobTiming job={latest} showSteps={kind === "video"}
+              statusLabel={latest.status === "running"
                 ? queueLabel(latest) || runningLabel
                 : latest.status === "cancelled" ? "已取消生成"
                 : latest.status === "failed"
                   ? (latest.detail || "最近一次生成失败")
                   : result?.id && result.id === data.assetId
                     ? "画布正在使用此版"
-                    : "新版本已生成"}
-            </span>
-            <JobTiming job={latest} showSteps={kind === "video"} />
+                    : "新版本已生成"} />
           </div>
           <button onClick={() => menu("versions")} aria-haspopup="dialog">
             <History size={14} />

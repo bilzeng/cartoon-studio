@@ -95,10 +95,23 @@ test("从已选成片创建高清修复节点，切换至 4K 并查看生成进�
   await page.getByRole("option", { name: /4K/ }).click();
   await page.getByRole("button", { name: "开始放大", exact: true }).click();
   await page.locator(".flow-tile-face").getByText("工作台排队第 2 位").waitFor();
-  await page.locator(".generation-result").getByText("工作台排队第 2 位", { exact: true }).waitFor();
-  job = { ...job, phase: "executing", queuePosition: undefined };
-  const bar = page.locator(".generation-result").getByRole("progressbar", { name: "超分采样" });
+  const result = page.locator(".generation-result");
+  await result.getByText("工作台排队第 2 位", { exact: true }).waitFor();
+  const waitingHeight = (await result.boundingBox()).height;
+  const stage = "超分采样，生成高清画面并恢复片段细节".repeat(8);
+  job = {
+    ...job, phase: "executing", queuePosition: undefined,
+    step: { ...job.step, stage }, progressStream: "offline",
+  };
+  const bar = result.getByRole("progressbar", { name: stage });
   await bar.waitFor();
+  assert.equal((await result.boundingBox()).height, waitingHeight);
+  assert.ok(waitingHeight <= 38);
+  await page.setViewportSize({ width: 390, height: 740 });
+  assert.equal((await result.boundingBox()).height, waitingHeight);
+  assert.match(await result.locator(".generation-status").getAttribute("title"), /恢复片段细节/u);
+  assert.match(await result.locator(".job-timing").getAttribute("title"), /步骤连接中断，正在重连.*上次更新/u);
+  await page.setViewportSize({ width: 1440, height: 900 });
   const tile = page.locator(".flow-tile-face[data-generating]");
   assert.ok(await tile.locator(".tile-generation").isVisible());
   assert.equal((await tile.innerText()).trim(), "");

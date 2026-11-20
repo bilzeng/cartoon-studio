@@ -502,7 +502,18 @@
   font-size: 12px;
   color: #d7dadb;
 }
-.generation-result-info { min-width: 0; }
+.generation-result-info {
+  flex: 1;
+  display: grid;
+  grid-template-rows: repeat(2, 18px);
+  min-width: 0;
+}
+.generation-status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .job-timing {
   display: block;
   color: #aeb9ba;
@@ -510,16 +521,31 @@
   line-height: 1.5;
   font-variant-numeric: tabular-nums;
 }
-.generation-status {
+.generation-status,
+.generation-result-info .job-timing {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.generation-step-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.video-step-track {
+  flex: 0 0 clamp(18px, 12%, 60px);
+  height: 4px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #657275;
+}
+.video-step-track i {
+  display: block;
+  height: 100%;
+  background: #a5e2df;
 }
 .generation-status[data-status="failed"] {
   color: #ffbdb5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 .generation-result button:hover,
 .node-composer footer .settings-trigger:hover {
@@ -808,11 +834,11 @@
   }
 }
 .picture-editor {
-  margin: 6px 0;
+  margin: 6px 0 2px;
   font-size: 14px;
 }
 .picture-editor .cm-editor {
-  padding: 6px 0;
+  padding: 6px 0 2px;
   background: transparent;
 }
 .picture-editor .cm-editor.cm-focused {
@@ -829,9 +855,37 @@
 .picture-editor .cm-scroller {
   font: inherit;
   line-height: 1.5;
-  max-height: 3lh;
+  height: var(--prompt-height, auto);
+  max-height: var(--prompt-height, 3lh);
   overflow: auto;
   overscroll-behavior: contain;
+}
+.prompt-resize {
+  height: 14px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+.prompt-resize::before {
+  content: "";
+  width: 30px;
+  height: 3px;
+  border-radius: 2px;
+  background: #626668;
+}
+.prompt-resize:is(:hover, :active)::before {
+  background: #b0c9c8;
+}
+.prompt-resize:focus-visible {
+  outline: none;
+}
+.prompt-resize:focus-visible::before {
+  background: #b0c9c8;
+  outline: 2px solid #81c7ff;
+  outline-offset: 2px;
 }
 .picture-editor .cm-placeholder {
   color: #9ca3a4;

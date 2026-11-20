@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { durationText, jobTimes } from "../shared/job-timing.js";
 
-function StepProgress({ job }) {
+function stepProgress(job) {
   const { phase, step, progressStream, upload } = job;
   const uploading = phase === "uploading" && upload?.total > 0;
   const executing = phase === "executing";
@@ -26,45 +26,18 @@ function StepProgress({ job }) {
             "准备工作流";
   const updatedAt = uploading ? upload.updatedAt : step?.updatedAt;
   const age = Math.max(0, Date.now() - Date.parse(updatedAt));
-  return (
-    <div className="video-step">
-      <div className="video-step-title">
-        <strong>{stage}</strong>
-        {uploading && (
-          <b>
-            第 {upload.current} / {upload.total} 个
-          </b>
-        )}
-        {sampling && (
-          <b>
-            第 {step.value} / {step.max} 步
-          </b>
-        )}
-      </div>
-      <div
-        className="video-step-track"
-        role="progressbar"
-        aria-label={stage}
-        aria-valuemin={max ? 0 : undefined}
-        aria-valuemax={max}
-        aria-valuenow={value}
-      >
-        {max !== undefined && <i style={{ width: (100 * value) / max + "%" }} />}
-      </div>
-      {(executing || uploading) && (
-        <small>
-          {progressStream === "offline" ? "步骤连接中断，正在重连 · "
-            : executing && age >= 30000 ? "正在等待下一步回报 · " : ""}
-          {Number.isFinite(age)
-            ? "上次更新 " + durationText(age) + "前"
-            : "等待服务器回传步骤"}
-        </small>
-      )}
-    </div>
-  );
+  const count = uploading
+    ? `第 ${upload.current} / ${upload.total} 个`
+    : sampling ? `第 ${step.value} / ${step.max} 步` : "";
+  const freshness = executing || uploading ? [
+    progressStream === "offline" ? "步骤连接中断，正在重连"
+      : executing && age >= 30000 ? "正在等待下一步回报" : "",
+    Number.isFinite(age) ? "上次更新 " + durationText(age) + "前" : "等待服务器回传步骤",
+  ].filter(Boolean).join(" · ") : "";
+  return { stage, value, max, count, freshness };
 }
 
-export function JobTiming({ job, showSteps = false }) {
+export function JobTiming({ job, showSteps = false, statusLabel }) {
   const running = job?.status === "running";
   const [, tick] = useState(0);
   useEffect(() => {
@@ -74,7 +47,7 @@ export function JobTiming({ job, showSteps = false }) {
   }, [running]);
 
   if (!job) return null;
-  showSteps = showSteps && job.phase !== "waiting";
+  const progress = showSteps && running && job.phase !== "waiting" ? stepProgress(job) : null;
   const { elapsedMs, estimatedRemainingMs } = jobTimes(job);
   const parts = [];
   if (elapsedMs !== null)
@@ -91,18 +64,37 @@ export function JobTiming({ job, showSteps = false }) {
       );
     else if (estimatedRemainingMs === 0) parts.push("执行已达到预估时长");
   }
-  if (!parts.length && !(showSteps && running)) return null;
+  if (!parts.length && !statusLabel) return null;
   const explanation =
     running && job.estimateSamples
       ? "按同一环境、同配置最近 " +
         job.estimateSamples +
         " 次成功任务估算执行时间，排队和文件传输另计。"
       : "总耗时从工作台提交任务起算。执行时间取自 ComfyUI 的执行记录。";
+  const timing = parts.join(" · ");
+  const compactTiming = [timing, progress?.freshness].filter(Boolean).join(" · ");
   return (
     <>
-      {showSteps && running && <StepProgress job={job} />}
-      <small className="job-timing" aria-live="off" title={explanation}>
-        {parts.join(" · ")}
+      {statusLabel && (
+        <div className="generation-status-line">
+          <span className="generation-status" aria-live="polite" data-status={job.status}
+            title={[progress?.stage, job.detail || statusLabel].filter(Boolean).join("\n")}>
+            {progress?.stage || statusLabel}
+          </span>
+          {progress?.count && <b className="generation-step-count">{progress.count}</b>}
+          {progress && (
+            <div className="video-step-track" role="progressbar" aria-label={progress.stage}
+              aria-valuemin={progress.max ? 0 : undefined}
+              aria-valuemax={progress.max}
+              aria-valuenow={progress.value}>
+              {progress.max !== undefined && <i style={{ width: (100 * progress.value) / progress.max + "%" }} />}
+            </div>
+          )}
+        </div>
+      )}
+      <small className="job-timing" aria-live="off"
+        title={statusLabel && compactTiming ? compactTiming + "\n" + explanation : explanation}>
+        {compactTiming}
       </small>
     </>
   );

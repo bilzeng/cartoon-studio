@@ -147,13 +147,6 @@ html:has(.flow-workspace) {
     );
   animation: tile-generation-drift 3.6s ease-in-out infinite alternate;
 }
-.video-step { width: min(215px, 100%); margin: 4px 0; text-align: left; }
-.video-step-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.video-step-title strong { font-weight: 500; overflow-wrap: anywhere; }
-.video-step-title b { flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.video-step-track { height: 4px; border-radius: 4px; margin: 4px 0; overflow: hidden; background: #657275; }
-.video-step-track i { display: block; height: 100%; background: #a5e2df; }
-.video-step small { font-size: 10px; color: #d3dedf; }
 @keyframes tile-generation-drift {
   from {
     transform: translate(-10%, 4%) rotate(-9deg);
@@ -424,7 +417,7 @@ html:has(.flow-workspace) {
   border: 1px solid #3a3a3a;
   border-radius: 16px;
   box-shadow: 0 8px 25px #0002;
-  max-height: calc(100dvh - 120px);
+  max-height: var(--composer-max-height);
   overflow: auto;
 }
 .composer-chips,
@@ -434,8 +427,11 @@ html:has(.flow-workspace) {
   gap: 6px;
 }
 .composer-chips {
+  position: relative;
   flex-wrap: wrap;
   column-gap: 4px;
+  min-height: 27px;
+  padding-inline-end: 35px;
 }
 .composer-chips button {
   background: var(--button-face);
@@ -448,7 +444,11 @@ html:has(.flow-workspace) {
   white-space: nowrap;
 }
 .composer-chips .chip-more {
-  margin-left: auto;
+  position: absolute;
+  inset: 0 0 auto auto;
+  width: 31px;
+  height: 27px;
+  justify-content: center;
   background: transparent;
 }
 .node-composer > textarea {
