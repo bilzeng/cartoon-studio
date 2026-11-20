@@ -47,9 +47,15 @@ test("群演体型、手持道具、导入模型和镜头参数可以保存并�
   await button("兵器库").click();
   await option("道具放置方式","装备到右手");
   await button("装备古风长剑").click();
+  await button("兵器库").click();
+  await option("道具放置方式","装备到左手");
+  await button("装备奇幻战锤").click();
   await button("动作库").click();
   await button("武打").click();
-  await button("剑花收势").click();
+  for (const action of ["高鞭腿","咏春拳","降龙十八掌"]) {
+    await button(action).click();
+    assert.equal(await button(action).getAttribute("aria-pressed"),"true");
+  }
   await button("预览动作").click();
   await button("停止预览").click();
   await button("导入模型").click();
@@ -97,7 +103,8 @@ test("群演体型、手持道具、导入模型和镜头参数可以保存并�
   const cast = stage.objects.filter(o => o.name.startsWith("群演"));
   assert.equal(new Set(cast.map(o => o.body)).size,6);
   assert.equal(stage.objects[0].equipment.right,"straightSword");
-  assert.equal(stage.objects[0].pose,"swordFlourish");
+  assert.equal(stage.objects[0].equipment.left,"fantasyHammer");
+  assert.equal(stage.objects[0].pose,"dragonPalms");
   const model = stage.objects.find(o => o.name === "调度模型");
   const assets = await (await page.request.get(base+"api/assets")).json();
   const asset = assets.find(a => a.id === model.modelAssetId);

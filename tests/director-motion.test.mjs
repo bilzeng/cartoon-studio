@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Vector3 } from "three";
 import { newStage, validStage } from "../shared/director-stage.js";
 import { sampleStage, walkTo, keyObject } from "../shared/stage-animation.js";
 import { addCameraMove } from "../shared/stage-camera.js";
@@ -7,6 +8,46 @@ import { makeNode } from "../shared/studio.js";
 import { placeStageVideo } from "../shared/director-output.js";
 import { canvasInputs, resolveWorkflowInputs } from "../shared/canvas.js";
 import { figure } from "../src/director/figure.js";
+
+const worldPosition = (mesh,name) => mesh.getObjectByName(name).getWorldPosition(new Vector3());
+
+test("左右手的奇幻战锤握在柄上，站立时锤头朝角色前方", () => {
+  const mesh = figure("#a08974","standing","round",{left:"fantasyHammer",right:"fantasyHammer"});
+  mesh.rotation.y = .62;
+  const forward = new Vector3(0,0,1).applyQuaternion(mesh.quaternion);
+  for (const side of ["left","right"]) {
+    const prop = mesh.getObjectByName(side+"-grip").children[0];
+    const hand = worldPosition(mesh,side+"-hand");
+    assert.ok(prop.localToWorld(new Vector3(0,.23,0)).distanceTo(hand) < 1e-6);
+    assert.ok(prop.localToWorld(new Vector3(0,.82,0)).sub(hand).dot(forward) > .4);
+    assert.ok(prop.localToWorld(new Vector3()).sub(hand).dot(forward) < 0);
+  }
+});
+
+test("三个新武打预设在时间轴上分别呈现高位扫腿、交替出手和双掌蓄势", () => {
+  function preview(pose,frames) {
+    const original = newStage(), actor = original.objects[0];
+    const stage = keyObject(original,actor.id,8,{pose});
+    assert.ok(validStage(stage));
+    assert.equal(sampleStage(stage,7).objects[0].pose,"standing");
+    const mesh = figure(actor.color,pose);
+    return frames.map(frame => {
+      const sampled = sampleStage(stage,8+frame).objects[0];
+      assert.equal(sampled.pose,pose);
+      mesh.setGait(sampled.gait,sampled.actionPhase,sampled.joints);
+      return ["left-foot","right-foot","left-hand","right-hand"].map(name => worldPosition(mesh,name));
+    });
+  }
+  const [[lead,base],[follow],[rest]] = preview("highWhipKick",[22,29,54]);
+  assert.ok(lead.y > 1.45 && base.y < .1);
+  assert.ok(Math.abs(lead.x-follow.x) > .3);
+  assert.ok(rest.y < .1);
+  const [[,,leftGuard,rightForward],[,,leftForward,rightGuard]] = preview("wingChun",[7,17]);
+  assert.ok(rightForward.z-leftGuard.z > .15 && leftForward.z-rightGuard.z > .15);
+  const [[,,leftUp,rightUp],[,,leftOut,rightOut]] = preview("dragonPalms",[21,32]);
+  assert.ok(leftUp.y > 1.65 && rightUp.y > 1.65);
+  assert.ok(leftOut.z > leftUp.z+.12 && rightOut.z > rightUp.z+.12);
+});
 
 test("连续落点按距离和步速排帧，落脚、摆臂、转弯，停止时恢复站姿", () => {
   const original = newStage(), id = original.objects[0].id;

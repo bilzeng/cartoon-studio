@@ -77,9 +77,10 @@ export function figure(color, pose, body, equipment) {
   const waistHeight = .918 + offset;
   for (const part of group.children.slice()) { part.position.y -= waistHeight; torso.add(part); }
   group.add(torso);
-  const torsoRotation = new T.Euler(0,0,0,"YXZ"), atWaist = new T.Vector3();
+  const torsoRotation = new T.Euler(0,0,0,"YXZ"), atWaist = new T.Vector3(), handAxis = new T.Vector3();
   const animateSides = [];
   for (const sign of [-1, 1]) {
+    const side = sign === 1 ? "left" : "right";
     const hip = [.103 * sign * waist, 0.918 + offset, 0];
     const knee = [.113 * sign * waist, seated ? 0.47 : 0.5, seated ? 0.39 : step ? 0.17 * sign + 0.055 : 0.018];
     const ankle = [.13 * sign * waist, step && sign < 0 ? 0.17 : 0.105, seated ? 0.40 : step ? 0.31 * sign : -0.025];
@@ -90,6 +91,7 @@ export function figure(color, pose, body, equipment) {
     const kneecap = oval(...knee, .07 * build, .071, .07 * build, joint);
     const shin = limb(knee, ankle, .074 * build);
     const foot = oval(ankle[0], ankle[1] - 0.047, ankle[2] + 0.069, .07 * build, .057, .143 * build);
+    foot.name = side + "-foot";
     const shoulder = [.204 * sign * shoulders, 1.423 + offset, 0];
     let elbow = [.255 * sign * shoulders, 1.16 + offset, step ? -0.10 * sign : .013];
     let wrist = [.27 * sign * shoulders, .905 + offset, step ? -.23 * sign + .07 : .075];
@@ -107,22 +109,25 @@ export function figure(color, pose, body, equipment) {
     const elbowJoint = oval(...elbow, .048 * build, .05, .048 * build, joint);
     const forearm = limb(elbow, wrist, .054 * build);
     const hand = oval(...wrist, .044 * build, .069, .037 * build);
-    const side = sign === 1 ? "left" : "right";
+    hand.name = side + "-hand";
     const weaponId = equipment?.[side];
     const weapon = weaponCatalog[weaponId];
     const grip = weapon ? new T.Group() : null;
+    const hammer = weaponId === "fantasyHammer";
     if (grip) {
+      grip.name = side + "-grip";
       const prop = propMesh({ shape: weaponId, color: weapon.color });
       prop.scale.fromArray(weapon.size);
-      prop.position.y = -weapon.size[1] * (weaponId === "moonShield" || weaponId === "stageStaff" ? .5 : .13);
+      const gripHeight = hammer ? .23 : weaponId === "moonShield" || weaponId === "stageStaff" ? .5 : .13;
+      prop.position.y = -weapon.size[1] * gripHeight;
       grip.add(prop);
       group.add(grip);
     }
     const upper = new T.Quaternion(), lower = new T.Quaternion(), euler = new T.Euler();
     const mid = new T.Vector3(), tip = new T.Vector3();
-    function articulate(root, hinge, end, lift, spread, bend) {
-      if (!lift && !spread && !bend) return;
-      upper.setFromEuler(euler.set(-radians(lift),0,sign*radians(spread),"ZXY"));
+    function articulate(root, hinge, end, lift, spread, bend, turn = 0) {
+      if (!lift && !spread && !bend && !turn) return;
+      upper.setFromEuler(euler.set(-radians(lift),sign*radians(turn),sign*radians(spread),"YZX"));
       lower.setFromEuler(euler.set(-radians(bend),0,0));
       mid.set(hinge[0]-root[0],hinge[1]-root[1],hinge[2]-root[2]).applyQuaternion(upper);
       tip.set(end[0]-hinge[0],end[1]-hinge[1],end[2]-hinge[2]).applyQuaternion(lower).applyQuaternion(upper);
@@ -143,9 +148,12 @@ export function figure(color, pose, body, equipment) {
       const bend = Math.sqrt(Math.max(0,.445**2-(reach/2)**2));
       const k = [knee[0],mix(knee[1],(a[1]+h[1])/2+bend*dz/reach),
         mix(knee[2],(a[2]+h[2])/2-bend*dy/reach)];
-      articulate(h,k,a,value(side+"Hip"),0,-value(side+"Knee"));
+      const hipTurn = value(side+"HipTurn");
+      articulate(h,k,a,value(side+"Hip"),value(side+"HipSpread"),-value(side+"Knee"),hipTurn);
       link(thigh,h,k,.096 * build); link(shin,k,a,.074 * build); kneecap.position.fromArray(k);
-      foot.position.set(a[0],a[1]-.047,a[2]+.069);
+      foot.rotation.y = sign*radians(hipTurn);
+      foot.position.set(a[0],a[1]-.047,a[2]);
+      foot.translateZ(.069);
       const sh = [shoulder[0],shoulder[1]+bob,0];
       const swingArm = ["standing","walking","running"].includes(pose);
       const e = [elbow[0],elbow[1]+bob,swingArm ? mix(elbow[2],-.51*stride*excursion) : elbow[2]];
@@ -165,8 +173,13 @@ export function figure(color, pose, body, equipment) {
       if (grip) {
         grip.position.fromArray(wr);
         direction.set(wr[0]-e[0],wr[1]-e[1],wr[2]-e[2]).normalize();
+        if (hammer) {
+          // Map the upright prop to a forward-facing hold along the wrist's local plane.
+          handAxis.set(1,0,0).applyEuler(torsoRotation);
+          direction.applyAxisAngle(handAxis,-Math.PI/2);
+        }
         grip.quaternion.setFromUnitVectors(axis,direction);
-        grip.rotateX(Math.PI * .62);
+        if (!hammer) grip.rotateX(Math.PI * .62);
       }
     });
   }
