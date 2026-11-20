@@ -43,6 +43,7 @@ import {
   ListVideo,
   Map as MapIcon,
   MousePointer2,
+  Orbit,
   Network,
   Plus,
   Trash2,
@@ -60,7 +61,13 @@ import {
   removeCanvasNodes,
   validCanvasEndpoints,
 } from "../shared/canvasGroups";
-import { checkVideoDestination, placeStageVideo } from "../shared/director-output";
+import { attachVideoInput, replaceVideoSource } from "../shared/video-connections";
+import { imageActionData, imageActionNames, isPanoramaNode, panoramaLineage, legacyPanoramaModelId, panoramaModelId } from "../shared/image-actions";
+import { PanoramaViewer } from "./PanoramaViewer";
+import { existingCompositionReferences, placeComposition } from "../shared/stage-composition";
+import { isCharacterCard } from "../shared/character-card";
+import { isImageRestoreModel } from "../shared/image-restore";
+import { checkVideoDestination, placeStageVideo, stageOutputPosition } from "../shared/director-output";
 import { missingFiles } from "./ModelPicker";
 import { addCanvasNode, addCanvasReferences } from "../shared/canvas";
 import { newStage } from "../shared/director-stage";
@@ -218,6 +225,8 @@ function Tile({ id, data, width, selected }) {
             <button className="nodrag nopan" onClick={e => { e.stopPropagation(); setStageId(id); }}>打开导演台</button></div>
         </div> : original ? (
           <RestoreComparison key={asset.id + original.id} original={original} restored={asset} controls={selected} />
+        ) : asset?.kind === "image" && data.kind === "image" && (asset.panorama || isPanoramaNode(data)) ? (
+          <PanoramaViewer key={asset.id} asset={asset} />
         ) : asset?.kind === "image" && data.kind === "image" ? (
           <img
             key={asset.id}
@@ -438,7 +447,7 @@ function IconButton({ icon: Icon, label, active, onClick, disabled }) {
 export function FlowCanvas({
   board,
   queueLabels,
-  assets,
+  assets: catalog,
   selected,
   initialPreviewId,
   select: selectSingle,
@@ -462,6 +471,7 @@ export function FlowCanvas({
     composer = useRef(null);
   const [box, setBox] = useState({ w: 1000, h: 650 }),
     [composerHeight, setHeight] = useState(170);
+  const wireStart = useRef(null), wireHover = useRef(null), reconnecting = useRef(null);
   const [menu, setMenu] = useState(null),
     [shortcuts, setShortcuts] = useState(false),
     [mini, setMini] = useState(false),
@@ -479,6 +489,15 @@ export function FlowCanvas({
     setViewport,
   } = useReactFlow();
   const [previewId, setPreview] = useState(initialPreviewId);
+  const assets = useMemo(() => {
+    const panoramaIds = board.nodes.filter(n => n.data.assetId && isPanoramaNode(n.data)).map(n => n.data.assetId);
+    const known = new Set(catalog.filter(a => a.panorama || a.restoreSourceId).map(a => a.id));
+    const legacyRoots = panoramaIds.filter(id => !known.has(id));
+    if (!legacyRoots.length) return catalog;
+    const sources = catalog.filter(a => a.restoreSourceId).map(a => [a.id, a.restoreSourceId]);
+    const inferred = panoramaLineage(legacyRoots, sources);
+    return catalog.map(a => a.kind === "image" && !a.panorama && inferred.has(a.id) ? { ...a, panorama: true } : a);
+  }, [catalog, board.nodes]);
   const preview = previewId && assets.find(a => a.id === previewId);
   const [stageId, setStageId] = useState("");
   const stageNode = board.nodes.find(n => n.id === stageId && n.data.kind === "stage");
@@ -581,6 +600,8 @@ export function FlowCanvas({
       edgesVisible
         ? board.edges.map((e) => ({
             ...e,
+            reconnectable:e.id === chosenEdge && board.nodes.find(n => n.id === e.target)?.data.kind === "video" &&
+              !!board.nodes.find(n => n.id === e.source)?.data.assetId ? "source" : false,
             className:
               e.source === selected ||
               e.target === selected ||
@@ -589,7 +610,7 @@ export function FlowCanvas({
                 : undefined,
           }))
         : [],
-    [board.edges, edgesVisible, selected, chosenEdge],
+    [board.edges, board.nodes, edgesVisible, selected, chosenEdge],
   );
   const onNodesChange = useCallback(
     (changes) => {
@@ -799,7 +820,7 @@ export function FlowCanvas({
         point: point || screenToFlowPosition({ x, y }),
       });
       setEdge("");
-      if (anchor) select(anchor);
+      if (anchor) select("");
     },
     [box.w, box.h, screenToFlowPosition, select],
   );
@@ -880,6 +901,26 @@ export function FlowCanvas({
       return next;
     });
   }, []);
+  async function submitMedia(target, modelId) {
+    const { id, data } = target;
+    const kind = data.kind;
+    onMediaSubmission(id, true);
+    try {
+      if (modelId && !data[kind + "Model"]) update(id, { [kind + "Model"]: modelId });
+      const revision = await flush();
+      const ticket = await api("/projects/" + board.id + "/generate", "POST", {
+        nodeId: id,
+        kind,
+        revision,
+        checkpoint: kind === "image" ? modelId : undefined,
+        environment: engine?.environment,
+      });
+      update(id, { pendingCanvasJob: ticket.id, pendingMediaSource: data.assetId || "" });
+      await flush();
+    } finally {
+      onMediaSubmission(id, false);
+    }
+  }
   const tileContext = useMemo(
     () => ({
       board,
@@ -1011,7 +1052,10 @@ export function FlowCanvas({
       ...data,
     });
     try {
-      edit((b) => addCanvasNode(b, n, at?.anchor, at?.side));
+      edit(b => {
+        const next = addCanvasNode(b,n,at?.anchor,at?.side);
+        return at?.anchor && at.side === "source" ? attachVideoInput(next,n.id,at.anchor,assets,engine?.videoModels || []) : next;
+      });
     } catch (e) {
       notify(e.message);
       return;
@@ -1026,23 +1070,46 @@ export function FlowCanvas({
         ...motion(),
       });
   }
-  async function captureStageFrame(stageId, cameraName, blob) {
+  async function captureStageFrame(stageId, cameraName, blob, plan, receipt = {}) {
     const source = board.nodes.find(n => n.id === stageId);
-    if (!source || board.nodes.length >= 250 || board.edges.length >= 1000)
-      throw Error("当前画布无法添加镜头图片，请检查节点及连线数量");
-    const title = (source.data.title + " · " + cameraName).slice(0, 100);
-    const frame = await uploadAsset(new File([blob], title + ".png", { type: "image/png" }), board.id);
-    edit(b => {
-      const current = b.nodes.find(n => n.id === stageId);
-      if (!current) throw Error("导演台已移除，截图已保存在素材库");
-      const x = current.position.x + 460;
-      let y = current.position.y;
-      while (b.nodes.some(n => Math.abs(n.position.x - x) < 365 && Math.abs(n.position.y - y) < 235)) y += 246;
-      const image = makeNode("image", { x, y }, { title, assetId: frame.id });
-      return addCanvasNode({ ...b, nodes: b.nodes.map(n => n.id === stageId
-        ? { ...n, data: { ...n.data, assetId: frame.id } } : n) }, image, stageId, "source");
-    });
-    await Promise.all([refresh(), flush()]);
+    if (!source) throw Error("导演台已移除");
+    const edgesNeeded = 1 + (plan ? 1 + plan.references.length : 0);
+    const nodesNeeded = plan ? 2 + existingCompositionReferences(board,plan.references).filter(n => !n).length : 1;
+    const title = (source.data.title + " · " + cameraName).slice(0,100);
+    if (!receipt.image) {
+      if (board.nodes.length + nodesNeeded > 250 || board.edges.length + edgesNeeded > 1000)
+        throw Error("画布剩余空间不足，请先减少节点或连线");
+      receipt.asset ??= await uploadAsset(new File([blob],title + ".png",{type:"image/png"}), board.id);
+      const model = plan && engine?.[plan.kind+"Models"]?.find(m => {
+        const refs = plan.references.length + 1;
+        const capacity = plan.kind === "video" && !m.workflow ? Number(!!m.needsImage) : (m.maxRefs ?? Number(!!m.reference));
+        return capacity >= refs && (m.minRefs || 0) <= refs && m.hasPrompt !== false &&
+          m.id !== panoramaModelId && m.id !== legacyPanoramaModelId && !isImageRestoreModel(m.id) && !isCharacterCard(m.id) && m.id !== poseSwapModelId && !m.framePair && !missingFiles(m).length &&
+          ["audio","video"].every(k => !m.mediaSlots?.[k] || m.optionalMedia?.[k]);
+      });
+      edit(b => {
+        const current = b.nodes.find(n => n.id === stageId);
+        if (!current) throw Error("导演台已移除，截图已保存在素材库");
+        const image = makeNode("image",stageOutputPosition(b,current),{title,assetId:receipt.asset.id});
+        let next = addCanvasNode({...b,nodes:b.nodes.map(n => n.id === stageId
+          ? {...n,data:{...n.data,assetId:receipt.asset.id}} : n)},image,stageId,"source");
+        if (plan) {
+          const placed = placeComposition(next,image,plan,stageOutputPosition(next,image),model?.id);
+          next = placed.board;
+          receipt.target = placed.target;
+          receipt.hasModel = !!model;
+        }
+        receipt.image = image;
+        return next;
+      });
+    }
+    await Promise.all([refresh(),flush()]);
+    if (receipt.target) {
+      const target = receipt.target;
+      setStageId(""); select(target.id);
+      setCenter(target.position.x+180,target.position.y+155,{zoom:Math.min(1,view.zoom),...motion()});
+      notify(receipt.hasModel ? "构图和参考图已接入分镜节点" : "分镜已创建，请选择支持 "+(plan.references.length+1)+" 张参考图的模型");
+    }
   }
   async function captureStageVideo(stageId,blob,target,receipt) {
     if (!receipt.clip) {
@@ -1090,6 +1157,26 @@ export function FlowCanvas({
       workflowValues,
     });
   }
+  async function deriveImage(action) {
+    if (!node || assetsById.get(node.data.assetId)?.kind !== "image") return;
+    const data = imageActionData(action,node,engine?.imageModels || []);
+    const output = makeNode("image",stageOutputPosition(board,node),data);
+    try {
+      edit(b => addCanvasNode(b,output,node.id,"source"));
+      select(action === "panorama" ? "" : output.id);
+      setCenter(output.position.x+182,output.position.y+165,{zoom:Math.min(1,view.zoom),...motion()});
+      if (action === "panorama") await submitMedia(output, data.imageModel);
+      else if (!data.imageModel) notify("已接好原图，请选择支持参考图的图片模型");
+    } catch (e) { notify(e.message); }
+  }
+  function stageFromImage(source) {
+    try {
+      const stage = {...newStage(source.data.canvasRatio || board.series?.ratio),backgroundId:source.data.assetId,backgroundMode:assetsById.get(source.data.assetId)?.panorama ? "panorama" : "flat"};
+      const node = makeNode("stage",stageOutputPosition(board,source),{title:(source.data.title+" · 导演台").slice(0,120),stage});
+      edit(b => addCanvasNode(b,node,source.id,"source"));
+      select(node.id); setStageId(node.id);
+    } catch (e) { notify(e.message); }
+  }
   function openPoseSwapNode(source) {
     openLinkedMediaTool(source, {
       title: "PoseSwap · 姿势与换装",
@@ -1108,11 +1195,33 @@ export function FlowCanvas({
       notify("画布连线已达上限");
       return;
     }
-    edit((b) => ({
-      ...b,
-      edges: [...b.edges, { id: makeId(), source, target }],
-    }));
+    edit(b => attachVideoInput({...b,edges:[...b.edges,{id:makeId(),source,target}]},target,source,assets,engine?.videoModels || []));
     setMenu(null);
+  }
+  function canReplaceSource(source) {
+    const prior = reconnecting.current;
+    if (!prior) return true;
+    const kind = id => assetsById.get(board.nodes.find(n => n.id === id)?.data.assetId)?.kind;
+    return !!kind(source) && kind(source) === kind(prior.source);
+  }
+  function videoBodyDrop(point) {
+    const start = wireStart.current;
+    if (!start || !point) return null;
+    const hit = document.elementFromPoint(point.clientX,point.clientY);
+    const tile = hit?.closest(".react-flow__node");
+    if (!tile || hit.closest(".flow-port") || !hit.closest(".flow-tile-face")) return null;
+    const id = tile.dataset.id;
+    const source = start.handleType === "source" ? start.nodeId : id;
+    const target = start.handleType === "source" ? id : start.nodeId;
+    if (!canReplaceSource(source) || board.nodes.find(n => n.id === target)?.data.kind !== "video" ||
+        !validCanvasEndpoints(nodeIds,groupMap,source,target) || board.edges.some(e => e.source === source && e.target === target)) return null;
+    return {source,target,tile};
+  }
+  function markWireTarget(tile) {
+    if (wireHover.current === tile) return;
+    wireHover.current?.classList.remove("video-wire-target");
+    wireHover.current = tile;
+    tile?.classList.add("video-wire-target");
   }
   function unlink(id) {
     edit((b) => ({ ...b, edges: b.edges.filter((e) => e.id !== id) }));
@@ -1186,6 +1295,7 @@ export function FlowCanvas({
         (dragPositions.size ? " moving-node" : "")
       }
       data-image-drop-active={imageDrop === "canvas" || undefined}
+      onPointerMoveCapture={e => { if (wireStart.current) markWireTarget(videoBodyDrop(e)?.tile || null); }}
       onDragOverCapture={dragImages}
       onDragLeaveCapture={leaveImageDrop}
       onDropCapture={dropImages}
@@ -1193,7 +1303,8 @@ export function FlowCanvas({
         if (e.target.classList?.contains("react-flow__pane")) panePalette(e);
       }}
     >
-      {preview && <AssetPreview asset={preview} assets={assets} projectId={board.id} close={() => setPreview(null)} />}
+      {preview && <AssetPreview asset={preview} assets={assets} projectId={board.id}
+        close={() => setPreview(null)} />}
       <CanvasContext.Provider value={tileContext}>
         <ReactFlow
           nodes={nodes}
@@ -1202,7 +1313,7 @@ export function FlowCanvas({
           connectionLineComponent={ConnectionPreview}
           connectionRadius={28 / view.zoom}
           isValidConnection={({ source, target }) =>
-            validCanvasEndpoints(nodeIds, groupMap, source, target) &&
+            canReplaceSource(source) && validCanvasEndpoints(nodeIds, groupMap, source, target) &&
             !board.edges.some((e) => e.source === source && e.target === target)
           }
           nodeTypes={types}
@@ -1266,13 +1377,26 @@ export function FlowCanvas({
             setEdge("");
           }}
           onConnect={({ source, target }) => connect(source, target)}
+          reconnectRadius={8/view.zoom}
+          onReconnectStart={(_,edge) => { reconnecting.current = edge; }}
+          onReconnect={(edge,{source}) => edit(b => replaceVideoSource(b,edge.id,source,assets))}
+          onReconnectEnd={() => { reconnecting.current = null; }}
           onConnectStart={(_, s) => {
+            wireStart.current = s;
             setMenu(null);
-            select(s.nodeId);
+            select("");
           }}
           onConnectEnd={(e, state) => {
-            if (state.isValid || state.toHandle || !state.fromHandle) return;
             const p = e.changedTouches?.[0] || e;
+            const drop = !state.toHandle && e.type !== "touchcancel" && videoBodyDrop(p);
+            wireStart.current = null; markWireTarget(null);
+            if (state.isValid || state.toHandle || !state.fromHandle || e.type === "touchcancel") return;
+            if (reconnecting.current) {
+              const edgeId = reconnecting.current.id;
+              if (drop) edit(b => replaceVideoSource(b,edgeId,drop.source,assets));
+              return;
+            }
+            if (drop) { connect(drop.source,drop.target); return; }
             if (
               !document
                 .elementFromPoint(p.clientX, p.clientY)
@@ -1372,6 +1496,15 @@ export function FlowCanvas({
             ? { ...n, data: { ...n.data, stage: change(n.data.stage) } } : n) }))}
           captureFrame={captureStageFrame} captureVideo={captureStageVideo} flush={flush} refresh={refresh} close={() => setStageId("")} />
       </Suspense>}
+      {node?.data.kind === "image" && assetsById.get(node.data.assetId)?.kind === "image" && !menu && !dragPositions.size &&
+        <div className="image-action-strip" role="toolbar" aria-label="图片创作" style={{
+          left:clamp(left+width/2,Math.min(146,box.w/2),Math.max(box.w-146,box.w/2)),
+          top:Math.max(50,view.y+position.y*view.zoom-58),
+        }}>
+          <button onClick={() => deriveImage("turnaround")}><UserRound size={15}/>{imageActionNames.turnaround}</button>
+          <button onClick={() => deriveImage("panorama")}><Orbit size={15}/>{imageActionNames.panorama}</button>
+          <button onClick={() => stageFromImage(node)}><Boxes size={15}/>搭景</button>
+        </div>}
       {node && node.data.kind !== "stage" && (
         <div
           className="composer-anchor"
@@ -1401,7 +1534,8 @@ export function FlowCanvas({
               openRestoreNode,
               openPoseSwapNode,
               openLinkedMediaTool,
-              onMediaSubmission,
+              submitMedia,
+              submitting: submittingNodes.has(node.id),
               refresh,
               flush,
               notify,
@@ -1439,7 +1573,7 @@ export function FlowCanvas({
                 <X size={13} />
               </button>
             </header>
-            {options.map((k) => {
+            {(menu.side === "source" && ["image","stage","video"].includes(origin?.data.kind) ? ["video",...options.filter(k => k!=="video")] : options).map((k) => {
               const Icon = icons[k];
               return (
                 <button key={k} onClick={() => create(k)}>

@@ -13,7 +13,7 @@ const waiting = j => j.status === "running" && j.phase === "waiting";
 const occupied = j => j.status === "running" && j.phase !== "waiting";
 let timer;
 
-export async function enqueue(project, type, detail, payload, { take, nodeId, modelId, inputAssets = [] } = {}) {
+export async function enqueue(project, type, detail, payload, { take, nodeId, modelId, panorama, inputAssets = [] } = {}) {
   let id = makeId();
   await changeJobs(items => {
     // A double click or retry on the same canvas node returns its existing ticket.
@@ -22,6 +22,7 @@ export async function enqueue(project, type, detail, payload, { take, nodeId, mo
     items.unshift({
       id, project, type, detail, status: "running", phase: "waiting", created: now(),
       nodeId, modelId, title: payload.assetTitle, shotId: take?.shotId, snapshot: take, assetId: null,
+      ...(panorama && {panorama:true}),
       inputAssetIds: [...new Set(inputAssets.map(a => a.id))],
       environment: currentUrl(), payload,
     });

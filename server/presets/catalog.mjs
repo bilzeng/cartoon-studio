@@ -3,6 +3,7 @@ import { videoUpscale2kId, videoUpscale4kId } from "../../shared/generation-size
 import { readFileSync } from "node:fs";
 import { h3Fields, h3VideoModelId } from "../../shared/h3-video.js";
 import { h3Continuation } from "./h3-continuation.mjs";
+import { panoramaPreset, qwenPanoramaPreset } from "./panorama.mjs";
 import { poseSwapPreset } from "./pose-swap.mjs";
 import { secondPassRestore } from "./second-pass-restore.mjs";
 import {
@@ -323,4 +324,6 @@ export const bundledPresets = [
   },
   h3Continuation,
   poseSwapPreset,
+  qwenPanoramaPreset,
+  panoramaPreset,
 ];

@@ -80,34 +80,41 @@ export function disposeMeshes(group) {
   geometries.forEach(g => g.dispose());
   materials.forEach(m => m.dispose());
 }
-let previews;
-export function propPreviews() {
-  if (previews) return previews;
+export function modelPreviews(entries, build, {width=160,height=100,elevation=2} = {}) {
   const images = {};
   const renderer = new T.WebGLRenderer({alpha:true,antialias:true});
   try {
-    renderer.setSize(160,100,false);
+    renderer.setSize(width,height,false);
+    const aspect = width/height;
     const world = new T.Scene();
     world.add(new T.HemisphereLight(0xfff5e6,0x919ba5,2.2));
     const sun = new T.DirectionalLight(0xffedcc,2.0);
     sun.position.set(-3,5,4); world.add(sun);
-    for (const [shape,p] of Object.entries(propCatalog)) {
-      const model = propMesh({shape,color:p.color});
-      model.scale.fromArray(p.size); world.add(model);
+    for (const [id,preset] of entries) {
+      const model = build(id,preset);
+      world.add(model);
       const bounds = new T.Box3().setFromObject(model), center = bounds.getCenter(new T.Vector3());
-      const camera = new T.OrthographicCamera(-1.6,1.6,1,-1,.01,50);
-      camera.position.copy(center).add(new T.Vector3(3,2,4)); camera.lookAt(center);
+      const camera = new T.OrthographicCamera(-aspect,aspect,1,-1,.01,50);
+      camera.position.copy(center).add(new T.Vector3(3,elevation,4)); camera.lookAt(center);
       camera.updateMatrixWorld();
       const fit = new T.Box3();
       for (const x of [bounds.min.x,bounds.max.x]) for (const y of [bounds.min.y,bounds.max.y]) for (const z of [bounds.min.z,bounds.max.z])
         fit.expandByPoint(new T.Vector3(x,y,z).applyMatrix4(camera.matrixWorldInverse));
-      camera.zoom = .88 / Math.max(fit.max.x/1.6, -fit.min.x/1.6, fit.max.y, -fit.min.y);
+      camera.zoom = .88 / Math.max(fit.max.x/aspect, -fit.min.x/aspect, fit.max.y, -fit.min.y);
       camera.updateProjectionMatrix();
       renderer.render(world,camera);
-      images[shape] = renderer.domElement.toDataURL("image/png");
+      images[id] = renderer.domElement.toDataURL("image/png");
       world.remove(model); disposeMeshes(model);
     }
-    previews = images;
     return images;
   } finally { renderer.dispose(); renderer.forceContextLoss(); }
+}
+
+let previews;
+export function propPreviews() {
+  return previews ??= modelPreviews(Object.entries(propCatalog),(shape,p) => {
+    const model = propMesh({shape,color:p.color});
+    model.scale.fromArray(p.size);
+    return model;
+  });
 }

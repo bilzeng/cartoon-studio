@@ -153,6 +153,7 @@ test("拖动时节点与连线持续可见，只保存落点；端口能吸附�
   assert.deepEqual(await center(port), a, "吸附反馈不能移动命中区域");
   await port.click();
   await palette.waitFor();
+  assert.equal(await page.locator(".composer-anchor").count(),0);
   const light = page.locator(".pending-wire .flow-wire-light");
   const phase = () =>
     light.evaluate((el) => getComputedStyle(el).strokeDashoffset);
@@ -171,6 +172,7 @@ test("拖动时节点与连线持续可见，只保存落点；端口能吸附�
   // Release outside both the visible cap and its hit area, inside the snap radius.
   await page.mouse.move(b.x - 22, b.y, { steps: 20 });
   await page.locator(".flow-port.connectingto.valid").waitFor();
+  assert.equal(await page.locator(".composer-anchor").count(),0);
   await page
     .locator(".react-flow__connection .flow-wire-light")
     .waitFor({ state: "attached" });
@@ -178,6 +180,7 @@ test("拖动时节点与连线持续可见，只保存落点；端口能吸附�
   await page.waitForFunction(
     () => document.querySelectorAll(".react-flow__edge-path").length === 2,
   );
+  assert.equal(await page.locator(".composer-anchor").count(),0);
   await page.waitForFunction(
     () => document.querySelector(".flow-status")?.textContent === "已保存",
   );

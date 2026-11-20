@@ -6,7 +6,7 @@ function walkSegments(actor, fps) {
   for (const next of actor.keys || []) {
     const dx = next.position[0] - previous.position[0], dz = next.position[2] - previous.position[2];
     const distance = Math.hypot(dx,dz), frames = next.frame-previous.frame;
-    if (frames > 0 && distance > .001 && previous.pose !== "seated") {
+    if (frames > 0 && distance > .001 && !["seated","kneeling","halfKneel","crouching"].includes(previous.pose)) {
       if (!run) { run = {start:previous.frame,end:next.frame}; cycles = 0; }
       run.end = next.frame;
       const scale = (previous.scale + next.scale)/2;

@@ -34,6 +34,7 @@ import {
   mediaReferenceError,
 } from "../shared/canvas.js";
 import express from "express";
+import { isPanoramaModel, panoramaLineage } from "../shared/image-actions.js";
 import { imageOptions, selectedLoras } from "./image-workflows.mjs";
 import {
   normalizeUrl,
@@ -209,7 +210,9 @@ export function studioApi() {
   api.get("/assets", async (_req, res) => {
     const [assets, history] = await Promise.all([allAssets(), jobs()]);
     const originals = new Map();
+    const roots = new Set(assets.filter(a => a.kind === "image" && a.panorama).map(a => a.id));
     for (const job of history) {
+      if (job.type === "image" && job.status === "done" && job.assetId && (job.panorama || isPanoramaModel(job.modelId))) roots.add(job.assetId);
       if (job.status !== "done" || !job.assetId || job.inputAssetIds?.length !== 1) continue;
       // Earlier restore jobs saved their preset description and input, but no model ID.
       const imageRestore = job.type === "image" && (job.modelId ? isImageRestoreModel(job.modelId)
@@ -218,7 +221,9 @@ export function studioApi() {
         : /^视频高清修复 · RelayVSR 二采 (2K|4K)(?: · |$)/.test(job.detail));
       if (imageRestore || videoRestore) originals.set(job.assetId, job.inputAssetIds[0]);
     }
-    res.json(assets.map(a => originals.has(a.id) ? { ...a, restoreSourceId: originals.get(a.id) } : a));
+    const panoramas = panoramaLineage(roots, originals);
+    res.json(assets.map(a => ({ ...a, ...(originals.has(a.id) && {restoreSourceId:originals.get(a.id)}),
+      ...(a.kind === "image" && panoramas.has(a.id) && {panorama:true}) })));
   });
   api.get("/assets/library", async (_req, res) => {
     const [assets, projects, history, prefs] = await Promise.all([allAssets(), listBoardFiles(), jobs(), settings()]);
@@ -951,6 +956,7 @@ export function studioApi() {
           asset,
         },
         { nodeId, modelId: checkpoint, take: snapshot(checkpoint, asset?.id),
+          panorama: !restoring && canvasNode?.data.imageTask === "panorama",
           inputAssets: presetInputs ? Object.values(presetInputs.media).flat() : references },
       ),
     );

@@ -1,3 +1,4 @@
+import { legacyPanoramaModelId, panoramaModelId } from "../shared/image-actions";
 import { JobTiming } from "./JobTiming";
 import { queueLabel } from "../shared/job-timing";
 import { CancelGeneration } from "./CancelGeneration";
@@ -97,7 +98,8 @@ export function NodeComposer({
   openRestoreNode,
   openPoseSwapNode,
   openLinkedMediaTool,
-  onMediaSubmission,
+  submitMedia,
+  submitting,
   droppingImages,
   refresh,
   flush,
@@ -109,7 +111,7 @@ export function NodeComposer({
     [processing, setBusy] = useState(false),
     [tick, poll] = useState(0),
     [error, showError] = useState("");
-  const busy = processing || droppingImages;
+  const busy = processing || droppingImages || submitting;
   const file = useRef(null);
   const settingsTrigger = useRef(null);
   const modelTrigger = useRef(null);
@@ -324,31 +326,13 @@ export function NodeComposer({
     };
   }, [board.id, id, tick, generated, refresh, flush]);
   async function generate() {
-    onMediaSubmission(id, true);
-    setBusy(true);
     showError("");
     try {
-      if (model && !data[kind + "Model"]) set({ [kind + "Model"]: model.id });
-      const revision = await flush();
-      const ticket = await api("/projects/" + board.id + "/generate", "POST", {
-        nodeId: id,
-        kind,
-        revision,
-        checkpoint: imageModel?.id,
-        environment: engine?.environment,
-      });
-      set({
-        pendingCanvasJob: ticket.id,
-        pendingMediaSource: data.assetId || "",
-      });
-      await flush();
+      await submitMedia(node, model?.id);
       setPanel("");
       poll((n) => n + 1);
     } catch (e) {
       showError(e.message);
-    } finally {
-      onMediaSubmission(id, false);
-      setBusy(false);
     }
   }
   async function uploadReferences(files, selectKind) {
@@ -579,6 +563,11 @@ export function NodeComposer({
           <MoreHorizontal size={17} />
         </button>
       </div>
+      {model?.id === panoramaModelId && !missingFiles(model).length && <p className="panorama-mode">
+        {model.panoramaLora ? "已启用千问 2.1 全景 LoRA" : "使用千问 2.1 底模扩图。安装 2.1 全景 LoRA 后会自动用于改善接缝。"}
+      </p>}
+      {data.imageTask === "panorama" && model && model.id !== panoramaModelId && model.id !== legacyPanoramaModelId &&
+        <p className="panorama-mode">当前使用通用图像编辑。可在模型列表中切换到「360° 全景扩图 · 千问 2.1」。</p>}
       {panel === "style" && (kind === "image" || kind === "video") && (
         <StyleGallery
           projectId={board.id}

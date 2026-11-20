@@ -7,6 +7,7 @@ import { makeId } from "../shared/studio.js";
 import { isImageRestoreModel, relayRestoreModelId, restoreSizeKey, secondPassRestoreId, redrawStrengthKey, maxRedrawStrength } from "../shared/image-restore.js";
 import { isCharacterCard, characterCardId } from "../shared/character-card.js";
 import { h3VideoModelId, h3ContinuationModelId, h3ContinuationSizeError } from "../shared/h3-video.js";
+import { panoramaModelId, panoramaLoraFile } from "../shared/image-actions.js";
 import { poseSwapModelId } from "../shared/pose-swap.js";
 
 export async function savePresetFiles(preset, descriptor, values) {
@@ -279,6 +280,7 @@ export function describePreset(preset, definitions) {
       !(preset.id === relayRestoreModelId && f.id === "prepare") &&
       !(preset.id === poseSwapModelId && f.id === "latent" && ["width", "height"].includes(f.input)),
   );
+  const panorama = preset.id === panoramaModelId;
   const dependencies = editable.filter(
     (f) =>
       f.type === "choice" &&
@@ -297,6 +299,10 @@ export function describePreset(preset, definitions) {
         : matches.length === 1
           ? matches[0]
           : f.value);
+    if (panorama && !preset.fileMap?.[f.key] && !f.choices.includes(f.value)) {
+      const pattern = {unet_name:/^qwen[-_]image[-_]2[._]1[-_]/i,clip_name:/^qwen3vl[-_]8b[-_]/i,vae_name:/^qwen[-_]image[-_]2[._]1[-_]vae/i}[f.input];
+      if (pattern) f.value = f.choices.find(file => pattern.test(basename(file))) ?? f.value;
+    }
     if (preset.id === h3VideoModelId && f.id === "128" && !preset.fileMap?.[f.key] && !f.choices.includes(f.value)) {
       const compatible = f.choices.filter(name => /(?:^|[/\\])qwen3vl[_-]32b[_-]minimax[_-]h3[_-]/i.test(name));
       if (compatible.length === 1) f.value = compatible[0];
@@ -382,6 +388,7 @@ export function describePreset(preset, definitions) {
     family: preset.family,
     ...(h3FlexAdapters.length === 2 && { fixedSamplingSteps: 6 }),
     ...(poseSwapProfile && { poseSwapProfile }),
+    ...(panorama && {panoramaLora:info.loras.find(path => path.split(/[/\\]/).at(-1) === panoramaLoraFile) || null}),
     baseModel: preset.baseModel,
     durationKey: preset.durationKey,
     dependencies,
@@ -545,6 +552,11 @@ export function bindPreset(
       }
     }
   }
+  if (preset.id === panoramaModelId && descriptor.panoramaLora) {
+    graph.panoramaLora = {class_type:"LoraLoaderModelOnly",inputs:{model:graph[8].inputs.model,
+      lora_name:descriptor.panoramaLora,strength_model:0.8}};
+    graph[8].inputs.model = ["panoramaLora",0];
+  }
   if (preset.optionalFirstFrame && imageCount === 0) {
     delete graph.image;
     delete graph.latent.inputs.start_image;
@@ -553,6 +565,7 @@ export function bindPreset(
     graph,
     output: preset.bindings.output,
     needsImage: descriptor.needsImage,
+    ...(preset.id === panoramaModelId && {preparePanoramaRef:true}),
     prepareVideoRefs: !!descriptor.optionalMedia?.video && !!media?.video?.length,
   };
 }

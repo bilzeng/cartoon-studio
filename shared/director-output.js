@@ -2,7 +2,7 @@ import { addCanvasNode } from "./canvas.js";
 import { upstreamNodes } from "./canvasGroups.js";
 import { makeNode } from "./studio.js";
 
-function beside(board, node) {
+export function stageOutputPosition(board, node) {
   const x = node.position.x + 460;
   let y = node.position.y;
   while (board.nodes.some(n => Math.abs(n.position.x-x)<365 && Math.abs(n.position.y-y)<235)) y += 246;
@@ -18,10 +18,10 @@ export function checkVideoDestination(board,stageId,target) {
 export function placeStageVideo(board,stageId,asset,target,modelId) {
   checkVideoDestination(board,stageId,target);
   const stage = board.nodes.find(n => n.id === stageId);
-  const clip = makeNode("video",beside(board,stage),{title:stage.data.title.slice(0,100)+" · 走位预演",assetId:asset.id});
+  const clip = makeNode("video",stageOutputPosition(board,stage),{title:stage.data.title.slice(0,100)+" · 走位预演",assetId:asset.id});
   let next = addCanvasNode(board,clip,stageId,"source");
   if (target === "new") {
-    const node = makeNode("video",beside(next,clip),{title:"视频生成",text:"@视频1",...(modelId && {videoModel:modelId}),
+    const node = makeNode("video",stageOutputPosition(next,clip),{title:"视频生成",text:"@视频1",...(modelId && {videoModel:modelId}),
       mediaRefOrder:{video:[clip.id]},selectedMediaRefs:{video:[clip.id]}});
     next = addCanvasNode(next,node,clip.id,"source");
   } else if (target !== "only") {

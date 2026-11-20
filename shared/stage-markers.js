@@ -16,6 +16,7 @@ export function editMarkers(stage, markers, offset, end) {
     if (!grouped.has(track)) grouped.set(track,new Set());
     grouped.get(track).add(frame);
   }
+  if (stage.objects.some(o=>o.locked && grouped.has(o.id))) throw Error("选区包含已锁定对象，请先解锁该轨道");
   const changes = new Map();
   for (const {id,keys} of stageTracks(stage)) {
     const chosen = grouped.get(id);

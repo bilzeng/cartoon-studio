@@ -5,6 +5,8 @@ import { figure, cameraMarker } from "./figure";
 import { propMesh, disposeMeshes as release } from "./props";
 import { stageFrames } from "../../shared/director-stage";
 
+import { switchOn } from "../../shared/stage-actions.js";
+
 const rad = T.MathUtils.degToRad;
 const rounded = n => Math.round(n * 100) / 100;
 function readTransform(object) {
@@ -13,7 +15,7 @@ function readTransform(object) {
     rotation: [object.rotation.x, object.rotation.y, object.rotation.z].map(n => rounded(T.MathUtils.radToDeg(n))),
   };
 }
-export function createViewport(host, { select, selectRailKey, walkPoint, transform, report }) {
+export function createViewport(host, { select, selectRailKey, walkPoint, transform, report, monitor }) {
   const renderer = new T.WebGLRenderer({ alpha: false, antialias: true });
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = T.PCFShadowMap;
@@ -80,6 +82,34 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
   const helper = gizmo.getHelper();
   world.add(helper);
   const objects = new Map();
+  const labelLayer = document.createElement("div");
+  labelLayer.className = "ds-actor-labels";
+  labelLayer.setAttribute("aria-hidden","true");
+  host.append(labelLayer);
+  const labels = new Map(), projected = new T.Vector3();
+  function renderLabels(w,h,inset) {
+    const enabled = mode === "director" && switchOn(stage,"labels");
+    labelLayer.hidden = !enabled;
+    if (!enabled) return;
+    const viewportBounds = inset && host.getBoundingClientRect();
+    for (const actor of stage.objects) {
+      if (actor.type !== "actor") continue;
+      let label = labels.get(actor.id);
+      if (!label) {
+        label = document.createElement("span"); labels.set(actor.id,label); labelLayer.append(label);
+      }
+      if (label.textContent !== actor.name) label.textContent = actor.name;
+      const mesh = objects.get(actor.id);
+      mesh.getObjectByName("head").getWorldPosition(projected);
+      projected.y += .39 * actor.scale;
+      projected.project(director);
+      const x = (projected.x+1)*w/2, y = (1-projected.y)*h/2;
+      const behindMonitor = inset && x + viewportBounds.left > inset.left && x + viewportBounds.left < inset.right &&
+        y + viewportBounds.top > inset.top && y + viewportBounds.top < inset.bottom;
+      label.hidden = !!actor.hidden || !!behindMonitor || Math.abs(projected.z)>1 || Math.abs(projected.x)>1 || Math.abs(projected.y)>1;
+      label.style.left = x+"px"; label.style.top = y+"px";
+    }
+  }
   let rail = null;
   function setRail(camera) {
     if (rail) { world.remove(rail); release(rail); rail = null; }
@@ -102,7 +132,7 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
         const tick = new T.Line(new T.BufferGeometry().setFromPoints([points[i],aim]),ink);
         tick.renderOrder = 3; rail.add(tick);
       });
-      rail.visible = mode === "director"; world.add(rail);
+      rail.visible = mode === "director" && switchOn(stage,"rail"); world.add(rail);
     }
     invalidate();
   }
@@ -138,6 +168,7 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, w, h);
     cropBackground(mode === "camera" ? shot.aspect : w / h);
+    let inset;
     if (mode === "camera") {
       renderer.setClearColor(0x101214);
       renderer.clear();
@@ -152,13 +183,33 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
       director.aspect = w / h;
       director.updateProjectionMatrix();
       renderer.render(world, director);
+      inset = monitor?.()?.getBoundingClientRect();
+      if (inset?.width && inset.height) {
+        const area = host.getBoundingClientRect();
+        const x = inset.left-area.left, y = area.bottom-inset.bottom;
+        renderer.setScissorTest(true);
+        renderer.setScissor(x,y,inset.width,inset.height);
+        renderer.setViewport(x,y,inset.width,inset.height);
+        showHelpers(false); cropBackground(shot.aspect);
+        renderer.render(world,shot);
+        showHelpers(true);
+        renderer.setScissorTest(false);
+        renderer.setViewport(0,0,w,h);
+      }
     }
+    renderLabels(w,h,inset);
   }
   function invalidate() {
     if (!disposed && !exporting && !scheduling) scheduling = requestAnimationFrame(() => { scheduling = 0; render(); });
   }
   orbit.addEventListener("change", invalidate);
   gizmo.addEventListener("change", invalidate);
+  gizmo.addEventListener("objectChange", () => {
+    if (gizmo.object?.userData.id === stage?.cameraId) {
+      shot.position.copy(gizmo.object.position);
+      shot.rotation.copy(gizmo.object.rotation);
+    }
+  });
   gizmo.addEventListener("dragging-changed", e => { orbit.enabled = mode !== "camera" && !e.value; });
   let gizmoUsed = false;
   gizmo.addEventListener("mouseDown", () => { gizmoUsed = true; });
@@ -176,14 +227,14 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
       const actor = stage.objects.find(o => o.id === selected);
       const spot = new T.Vector3();
       if (actor && ray.ray.intersectPlane(new T.Plane(new T.Vector3(0,1,0),-actor.position[1]),spot))
-        walkPoint(spot.toArray());
+        walkPoint(switchOn(stage,"snap") ? [Math.round(spot.x*2)/2,spot.y,Math.round(spot.z*2)/2] : spot.toArray());
       return;
     }
     if (rail?.visible) {
       const knot = ray.intersectObjects(rail.children.filter(o => o.isMesh),false)[0]?.object;
       if (knot) { selectRailKey(knot.userData.cameraId,knot.userData.frame); return; }
     }
-    let hit = ray.intersectObjects([...objects.values()], true)[0]?.object;
+    let hit = ray.intersectObjects([...objects.values()].filter(mesh => mesh.visible), true)[0]?.object;
     while (hit && !hit.userData.id) hit = hit.parent;
     if (hit) select(hit.userData.id);
   }
@@ -207,17 +258,17 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
     }, undefined, () => { if (!disposed && backgroundRevision === revision) report("背景图读取失败，请重新选择图片"); });
   }
   function showHelpers(enable) {
-    grid.visible = enable;
-    if (rail) rail.visible = enable;
+    grid.visible = enable && switchOn(stage,"grid");
+    if (rail) rail.visible = enable && switchOn(stage,"rail");
     helper.visible = enable && !!gizmo.object;
-    for (const item of stage.objects) if (item.type === "camera") objects.get(item.id).visible = enable;
+    for (const item of stage.objects) if (item.type === "camera") objects.get(item.id).visible = enable && !item.hidden;
   }
   function update(next, active, view, action, background) {
     stage = next; selected = active; mode = view; tool = action;
     const keys = new Set(stage.objects.map(o => o.id));
     for (const [id, mesh] of objects) if (!keys.has(id)) {
       if (gizmo.object === mesh) gizmo.detach();
-      world.remove(mesh); release(mesh); objects.delete(id);
+      world.remove(mesh); release(mesh); objects.delete(id); labels.get(id)?.remove(); labels.delete(id);
     }
     for (const item of stage.objects) {
       let mesh = objects.get(item.id);
@@ -231,7 +282,8 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
         mesh.userData = { id: item.id, signature };
         objects.set(item.id, mesh); world.add(mesh);
       }
-      if (item.type === "actor") mesh.setGait(item.gait);
+      mesh.visible = !item.hidden;
+      if (item.type === "actor") mesh.setGait(item.gait,item.actionPhase,item.joints);
       mesh.position.fromArray(item.position);
       mesh.rotation.set(...item.rotation.map(rad), "YXZ");
       if (item.type === "prop") mesh.scale.fromArray(item.size);
@@ -243,13 +295,66 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
       }
     }
     if (bgUrl !== background || bgMode !== stage.backgroundMode) loadBackground(background, stage.backgroundMode);
+    floor.visible = switchOn(stage,"floor");
+    world.backgroundRotation.y = stage.backgroundId && stage.backgroundMode !== "flat" ? rad(stage.panoramaYaw || 0) : 0;
+    gizmo.setTranslationSnap(switchOn(stage,"snap") ? .5 : null);
     orbit.enabled = mode !== "camera";
-    if (orbit.enabled && (tool === "translate" || tool === "rotate") && objects.has(selected)) {
+    if (orbit.enabled && (tool === "translate" || tool === "rotate") && objects.get(selected)?.visible && !stage.objects.find(o=>o.id===selected)?.locked) {
       gizmo.setMode(tool);
       if (gizmo.object !== objects.get(selected)) gizmo.attach(objects.get(selected));
     } else gizmo.detach();
     showHelpers(orbit.enabled);
     invalidate();
+  }
+  function frameSubjects(ids, size, cameraId) {
+    world.updateMatrixWorld(true);
+    const corners = [];
+    const bounds = new T.Box3();
+    for (const id of ids) {
+      const mesh = objects.get(id);
+      if (!mesh || !mesh.visible) continue;
+      const box = new T.Box3().setFromObject(mesh);
+      const height = box.max.y-box.min.y;
+      if (size === "medium") box.min.y += height*.43;
+      if (size === "close") {
+        box.min.y += height*.69;
+        const head = mesh.getObjectByName("head");
+        if (head) {
+          const face = new T.Box3().setFromObject(head).getCenter(new T.Vector3());
+          const half = height*.12;
+          box.min.x=face.x-half; box.max.x=face.x+half;
+          box.min.z=face.z-half; box.max.z=face.z+half;
+        }
+      }
+      bounds.union(box);
+      for (const x of [box.min.x,box.max.x]) for (const y of [box.min.y,box.max.y])
+        for (const z of [box.min.z,box.max.z]) corners.push(new T.Vector3(x,y,z));
+    }
+    if (!corners.length) throw Error("请先添加要拍摄的角色");
+    const center = bounds.getCenter(new T.Vector3());
+    const rotation = objects.get(cameraId).quaternion;
+    const inverse = rotation.clone().invert();
+    const slope = Math.tan(rad(stage.objects.find(o => o.id === cameraId).fov/2));
+    let distance = .2;
+    for (const point of corners) {
+      point.sub(center).applyQuaternion(inverse);
+      distance = Math.max(distance,point.z+1.1*Math.max(Math.abs(point.x)/(slope*shot.aspect),Math.abs(point.y)/slope));
+    }
+    const position = center.add(new T.Vector3(0,0,distance).applyQuaternion(rotation)).toArray();
+    if (position.some(n => Math.abs(n)>100)) throw Error("此构图超出机位范围，请缩小队形或调宽视角");
+    return {position:position.map(rounded)};
+  }
+  function subjectsInFrame() {
+    shot.updateMatrixWorld(true);
+    world.updateMatrixWorld(true);
+    const frustum = new T.Frustum().setFromProjectionMatrix(new T.Matrix4().multiplyMatrices(shot.projectionMatrix,shot.matrixWorldInverse));
+    const percent = n => Math.round(T.MathUtils.clamp(n,0,1)*100);
+    return stage.objects.filter(o => o.type === "actor" && !o.hidden).flatMap(actor => {
+      const box = new T.Box3().setFromObject(objects.get(actor.id));
+      if (!frustum.intersectsBox(box)) return [];
+      const point = box.getCenter(new T.Vector3()).project(shot);
+      return [{id:actor.id, x:percent((point.x+1)/2), y:percent((1-point.y)/2)}];
+    });
   }
   function capture() {
     if (!stage || (bgUrl && !texture)) throw Error("场景还未就绪，请等图片载入后再拍摄");
@@ -298,14 +403,21 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
   function contextLost(e) { e.preventDefault(); report("三维显示已中断，请关闭并重新打开导演台"); }
   surface.addEventListener("webglcontextlost", contextLost);
   return {
-    update, reset, capture, setRail, frameRail, beginVideo,
+    update, reset, capture, frameSubjects, subjectsInFrame, setRail, frameRail, beginVideo,
+    previewAction(id, phase) {
+      if (exporting || disposed) return;
+      const actor = stage?.objects.find(o=>o.id===id && o.type==="actor");
+      if (!actor) return;
+      objects.get(id).setGait(phase == null ? actor.gait : null,phase ?? actor.actionPhase,actor.joints);
+      invalidate();
+    },
     cameraFromDirector: () => ({ ...readTransform(director), fov: director.fov }),
     dispose() {
       disposed = true; cancelAnimationFrame(scheduling); observer.disconnect();
       surface.removeEventListener("webglcontextlost", contextLost);
       surface.removeEventListener("pointerdown", down, true); surface.removeEventListener("pointerup", up);
       gizmo.detach(); world.remove(helper); gizmo.dispose(); orbit.dispose();
-      floor.material = solidFloor; contactShadow.dispose(); release(world); texture?.dispose(); key.shadow.dispose(); renderer.dispose(); renderer.forceContextLoss(); surface.remove();
+      floor.material = solidFloor; contactShadow.dispose(); release(world); texture?.dispose(); key.shadow.dispose(); renderer.dispose(); renderer.forceContextLoss(); surface.remove(); labelLayer.remove();
     },
   };
 }

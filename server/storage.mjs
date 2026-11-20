@@ -144,6 +144,7 @@ export async function validateBoard(board) {
     )
       throw fail("节点内容或镜头时长无效");
     if (d.kind === "stage" && (!validStage(d.stage) || d.stage.referenceIds?.some(id => assets.get(id)?.kind !== "image") ||
+        d.stage.objects.some(o => o.referenceAssetId && assets.get(o.referenceAssetId)?.kind !== "image") ||
         (d.stage.backgroundId && assets.get(d.stage.backgroundId)?.kind !== "image")))
       throw fail("导演台的场景、机位或背景图无效");
     for (const kind of ["image", "video", "audio"]) {
@@ -209,6 +210,7 @@ export async function validateBoard(board) {
         ))
       ) throw fail("音视频引用列表无效");
     }
+    if (d.imageTask !== undefined && (d.kind !== "image" || !["turnaround","panorama"].includes(d.imageTask))) throw fail("图片创作类型无效");
     for (const ids of [d.imageRefOrder, d.canvasRefIds]) {
       if (ids !== undefined && (!Array.isArray(ids) || ids.length > 2000 ||
           ids.some((id) => typeof id !== "string" || !id || id.length > 160) ||

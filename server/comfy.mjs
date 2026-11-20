@@ -1,3 +1,4 @@
+import { panoramaReference } from "./panorama-reference.mjs";
 import { watchExecution } from "./comfy-progress.mjs";
 import { workloadKey, executionDuration } from "./generation-timing.mjs";
 import { currentUrl, defaultUrl, currentToken } from "./environments.mjs";
@@ -421,7 +422,9 @@ export async function generateImage(
       buildImageGraph(imageModel, options, width, height, references.length));
   const graph = template
     ? await bindGraph(template, {
-        prompt,
+        preparePanoramaRef:config?.preparePanoramaRef,
+        prompt:config?.preparePanoramaRef
+          ? "Fill the green areas to complete a seamless 360° equirectangular panorama.\n"+prompt : prompt,
         seed,
         asset,
         references,
@@ -490,7 +493,7 @@ export async function generateImage(
 }
 async function bindGraph(
   template,
-  { asset, references = [], media, prompt, seed, width, height, frames, progress, prepareVideoRefs },
+  { asset, references = [], media, prompt, seed, width, height, frames, progress, prepareVideoRefs, preparePanoramaRef },
 ) {
   const values = {
     "{{prompt}}": prompt,
@@ -520,8 +523,16 @@ async function bindGraph(
     const prepare = prepareVideoRefs && asset.kind === "video";
     if (prepare) await progress?.("正在准备参考视频「" + asset.name + "」");
     const path = asset.resource || (await assetPath(asset));
-    const ext = prepare ? "mp4" : asset.resource ? "png" : path.split(".").pop();
-    const bytes = prepare ? await h3VideoReference(asset) : await readFile(path);
+    const projectImage = preparePanoramaRef && slot === "{{image1}}";
+    let bytes, ext;
+    if (projectImage) {
+      await progress?.("正在投影全景参考图");
+      bytes = await panoramaReference(path);
+      ext = "png";
+    } else {
+      bytes = prepare ? await h3VideoReference(asset) : await readFile(path);
+      ext = prepare ? "mp4" : asset.resource ? "png" : path.split(".").pop();
+    }
     const name = "cartoon-" + createHash("sha256").update(bytes).digest("hex") + "." + ext;
     const data = new FormData();
     data.append("image", new Blob([bytes]), name);

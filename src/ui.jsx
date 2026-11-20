@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { PanoramaViewer } from "./PanoramaViewer";
 import { RestoreComparison, restoreOriginal } from "./RestoreComparison";
 import { AssetFileActions } from "./AssetFileActions";
 import {
@@ -66,25 +67,26 @@ export function Media({ asset, controls = false, ...props }) {
     );
   return <img src={asset.url} alt={asset.name} {...props} />;
 }
-export function AssetPreview({ asset, assets = [], projectId, label = asset.name, caption = label, close, insert }) {
+export function AssetPreview({ asset, assets = [], projectId, label = asset.name, caption = label, close, insert, panorama = asset.panorama }) {
   const original = restoreOriginal(asset, assets);
   const videoCompare = original?.kind === "video";
   const [controlsHost, setControlsHost] = useState(null);
   const [startTime] = useState(() => videoCompare
     ? Array.from(document.querySelectorAll(".flow-tile video[data-restored-video]"))
         .find(video => video.dataset.restoredVideo === asset.id)?.currentTime : 0);
+  const spherical = asset.kind === "image" && (panorama || original?.panorama);
   const dialog = useRef(null);
   const stage = useRef(null);
   const pan = useRef(null);
   const [actualSize, setActualSize] = useState(false);
   useLayoutEffect(() => {
     const area = stage.current;
-    if (area && actualSize) {
+    if (area && actualSize && !spherical) {
       area.querySelector('[role="slider"]')?.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
     }
-  }, [actualSize]);
+  }, [actualSize, spherical]);
   function startPan(e) {
-    if (!actualSize || e.pointerType === "touch" || e.button !== 0 || !e.isPrimary ||
+    if (!actualSize || spherical || e.pointerType === "touch" || e.button !== 0 || !e.isPrimary ||
         e.target.closest('[role="slider"]') || !e.target.closest(".restore-comparison")) return;
     const area = e.currentTarget;
     pan.current = { id: e.pointerId, x: e.clientX, y: e.clientY, left: area.scrollLeft, top: area.scrollTop };
@@ -112,19 +114,19 @@ export function AssetPreview({ asset, assets = [], projectId, label = asset.name
       onClick={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) close(); }}>
       <button className="viewer-close" autoFocus aria-label="关闭预览" onClick={close}><X size={21} /></button>
       {original ? <>
-        <strong className="restore-viewer-heading">修复对比</strong>
+        <strong className="restore-viewer-heading">{spherical ? "360° 全景修复对比" : "修复对比"}</strong>
         <div className="restore-zoom" role="group" aria-label="对比缩放">
-          <button type="button" aria-pressed={!actualSize} onClick={() => setActualSize(false)}>适应窗口</button>
-          <button type="button" aria-pressed={actualSize} onClick={() => setActualSize(true)}>100%</button>
+          <button type="button" aria-pressed={!actualSize} onClick={() => setActualSize(false)}>{spherical ? "标准视角" : "适应窗口"}</button>
+          <button type="button" aria-pressed={actualSize} onClick={() => setActualSize(true)}>{spherical ? "2×" : "100%"}</button>
         </div>
-        <div ref={stage} className="restore-viewer-stage" data-actual={actualSize || undefined}
+        <div ref={stage} className="restore-viewer-stage" data-panorama={spherical || undefined} data-actual={actualSize && !spherical || undefined}
           onPointerDown={startPan} onPointerMove={movePan} onLostPointerCapture={() => { pan.current = null; }}>
           <div className="restore-viewer-mat" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
-            <RestoreComparison key={asset.id} original={original} restored={asset} expanded actualSize={actualSize}
+            <RestoreComparison key={asset.id} original={original} restored={asset} expanded actualSize={actualSize} panorama={spherical}
               controlsHost={controlsHost} startTime={startTime} />
           </div>
         </div>
-      </> : <Media asset={asset} controls />}
+      </> : panorama && asset.kind === "image" ? <PanoramaViewer key={asset.id} asset={asset} /> : <Media asset={asset} controls />}
       {videoCompare && <div className="restore-viewer-transport" ref={setControlsHost} />}
       <div className="viewer-caption">
         <span title={caption}>{caption}</span>

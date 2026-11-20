@@ -1,3 +1,4 @@
+import { actionPhase, blendJoints } from "./stage-actions.js";
 import { gaitAt } from "./stage-walk.js";
 export const stageFps = 24;
 export const defaultEndFrame = 5 * stageFps;
@@ -7,7 +8,7 @@ export const endFrameOf = stage => stage.animation?.endFrame ?? defaultEndFrame;
 export function keyValues(item) {
   const fields = { position: [...item.position], rotation: [...item.rotation] };
   if (item.type === "camera") fields.fov = item.fov;
-  if (item.type === "actor") Object.assign(fields, { pose: item.pose, scale: item.scale });
+  if (item.type === "actor") Object.assign(fields, { pose: item.pose, scale: item.scale, joints: item.joints || {} });
   return fields;
 }
 const mix = (a, b, t) => a + (b - a) * t;
@@ -18,23 +19,26 @@ export function sampleObject(item, frame) {
   if (!keys?.length) return item;
   let left = { ...keyValues(item), frame:0 };
   for (const right of keys) {
-    if (right.frame === frame) return { ...item, ...right };
+    if (right.frame === frame) return { ...item, ...right, ...(item.type === "actor" && {joints:right.joints || {}}) };
     if (right.frame > frame) {
       const t = (frame - left.frame) / (right.frame - left.frame);
       return { ...item, ...left, position:left.position.map((v,i) => mix(v,right.position[i],t)),
         rotation:left.rotation.map((v,i) => wrapAngle(v + wrapAngle(right.rotation[i]-v)*t)),
-        ...(item.type === "actor" && { scale:mix(left.scale,right.scale,t) }),
+        ...(item.type === "actor" && { scale:mix(left.scale,right.scale,t), joints:left.pose === right.pose ? blendJoints(left.joints,right.joints,t) : left.joints || {} }),
         ...(item.type === "camera" && { fov:mix(left.fov,right.fov,t) }) };
     }
     left = right;
   }
-  return { ...item, ...left };
+  return { ...item, ...left, ...(item.type === "actor" && {joints:left.joints || {}}) };
 }
 export function sampleStage(stage, frame) {
   const cut = stage.animation?.cuts?.findLast(c => c.frame <= frame);
   return { ...stage, cameraId: cut?.cameraId || stage.cameraId, objects: stage.objects.map(o => {
-    const sampled = sampleObject(o,frame);
-    const gait = o.type === "actor" && gaitAt(o,frame,stageFps);
+    let sampled = sampleObject(o,frame);
+    if (o.type !== "actor") return sampled;
+    const phase = actionPhase(o,sampled.pose,frame);
+    if (phase !== undefined) sampled = {...sampled,actionPhase:phase};
+    const gait = gaitAt(o,frame,stageFps);
     if (!gait) return sampled;
     return { ...sampled,gait,rotation:gait.yaw == null ? sampled.rotation : [sampled.rotation[0],gait.yaw,sampled.rotation[2]] };
   }) };
@@ -81,8 +85,12 @@ export function walkTo(stage, id, start, point, speed = 1.35) {
   if (end > maxEndFrame) throw Error("这段走位超过 120 秒，请缩短距离");
   if (actor.keys?.some(k => k.frame > start && k.frame <= end)) throw Error("这段时间已有角色关键帧，请从上一段终点继续或换一个时间");
   const heading = Math.atan2(dx,dz)*180/Math.PI;
-  const keys = insert(insert(actor.keys,{...first,pose:"standing",frame:start,facePath:true}),
-    {...first,pose:"standing",position:[point[0],first.position[1],point[2]],rotation:[0,heading,0],frame:end});
+  let travelPose = first.pose;
+  if (["seated","crouching","kneeling","halfKneel"].includes(travelPose)) travelPose = "standing";
+  if (speed >= 2.6 && ["standing","walking"].includes(travelPose)) travelPose = "running";
+  const arrivePose = ["walking","running"].includes(travelPose) ? "standing" : travelPose;
+  const keys = insert(insert(actor.keys,{...first,pose:travelPose,frame:start,facePath:true}),
+    {...first,pose:arrivePose,position:[point[0],first.position[1],point[2]],rotation:[0,heading,0],frame:end});
   return {end,stage:{...stage,animation:{cuts:[],...stage.animation,endFrame:Math.max(endFrameOf(stage),end)},
     objects:stage.objects.map(o => o.id === id ? {...o,keys} : o)}};
 }

@@ -72,3 +72,37 @@ test("视频可只放到画布，也能接入已有节点并保留已有视频�
   }
   assert.equal(board.nodes.length,3); assert.equal(target.data.text,"跟随 @视频1 的人物");
 });
+
+test("动作随时间重复，关节在同一姿态内插值，旧关键帧会还原关节", () => {
+  let stage = newStage();
+  const actor = stage.objects[0];
+  stage = keyObject(stage,actor.id,8,{pose:"waving",joints:{rightArm:30}});
+  stage = keyObject(stage,actor.id,23,{joints:{rightArm:60}});
+  const wave = frame=>sampleStage(stage,frame).objects[0];
+  assert.equal(wave(7).pose,"standing");
+  assert.equal(wave(13).joints.rightArm,40);
+  assert.equal(wave(23).actionPhase,.5);
+  assert.equal(wave(38).actionPhase,0);
+  const mesh=figure(actor.color,"waving");
+  mesh.setGait(null,0,{rightArm:30});
+  const still=mesh.children.map(c=>c.position.toArray());
+  mesh.setGait(null,.25,{rightArm:30});
+  assert.ok(mesh.children.some((c,i)=>c.position.toArray().some((x,j)=>Math.abs(x-still[i][j])>.015)));
+  delete stage.objects[0].keys[1].joints;
+  assert.deepEqual(wave(23).joints,{});
+  assert.ok(validStage(stage));
+  stage.objects[0].keys[1].joints={rightArm:350};
+  assert.ok(!validStage(stage));
+});
+
+test("连续跑步落点保留跑姿，停步恢复站立，挥手走位保留上身动作", () => {
+  const scene = newStage(), actor = scene.objects[0];
+  const first = walkTo(scene,actor.id,0,[0,0,3],3);
+  const next = walkTo(first.stage,actor.id,first.end,[2,0,3],3);
+  for (const f of [4,first.end+4]) assert.equal(sampleStage(next.stage,f).objects[0].pose,"running");
+  assert.equal(sampleStage(next.stage,next.end).objects[0].pose,"standing");
+  const wave = walkTo(keyObject(scene,actor.id,0,{pose:"waving"}),actor.id,0,[0,0,2]);
+  const moving = sampleStage(wave.stage,7).objects[0];
+  assert.equal(moving.pose,"waving");
+  assert.ok(moving.gait && moving.actionPhase > 0);
+});

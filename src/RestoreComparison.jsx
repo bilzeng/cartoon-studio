@@ -2,20 +2,21 @@ import React, { useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { RestoreVideo } from "./RestoreVideo";
 
+import { PanoramaViewer } from "./PanoramaViewer";
 import "./restore-comparison.css";
 
 export function restoreOriginal(asset, assets) {
   return asset?.restoreSourceId && assets.find(item => item.id === asset.restoreSourceId && item.kind === asset.kind);
 }
 
-export function RestoreComparison({ original, restored, expanded = false, actualSize = false, controls = expanded, controlsHost, startTime }) {
+export function RestoreComparison({ original, restored, expanded = false, actualSize = false, panorama = restored.panorama || original.panorama, controls = expanded, controlsHost, startTime }) {
   const video = restored.kind === "video";
   const [split, setSplit] = useState(expanded || video ? 50 : 72);
   const [ratio, setRatio] = useState(16 / 9);
   const [ready, setReady] = useState(false);
   const frame = useRef(null);
   const drag = useRef(null);
-  const wholeImage = expanded && !actualSize;
+  const wholeImage = expanded && !actualSize && !panorama;
   const adjust = (n) => setSplit(Math.max(0, Math.min(100, n)));
   function fractionAt(x) {
     const bounds = frame.current.getBoundingClientRect();
@@ -47,11 +48,11 @@ export function RestoreComparison({ original, restored, expanded = false, actual
   }
 
   return (
-    <div ref={frame} className="restore-comparison" data-expanded={expanded || undefined} data-scrub={wholeImage || undefined}
+    <div ref={frame} className="restore-comparison" data-panorama={panorama || undefined} data-expanded={expanded || undefined} data-scrub={wholeImage || undefined}
       data-video={video || undefined} data-controls={video && controls || undefined} data-ready={ready || undefined}
       style={{ "--split": split + "%", "--video-ratio": ratio }}>
       {video ? <RestoreVideo {...{ original, restored, controls, controlsHost, expanded, startTime }}
-        onReady={setReady} onRatio={setRatio} /> : <>
+        onReady={setReady} onRatio={setRatio} /> : panorama ? <PanoramaViewer asset={restored} original={original} zoom={actualSize ? 2 : 1} onCompareReady={setReady}/> : <>
       <img src={restored.url} alt={restored.name} draggable={false} />
       <img className="restore-original" src={original.url} alt="修复前的原图" draggable={false}
         style={{ visibility: ready ? "visible" : "hidden" }}

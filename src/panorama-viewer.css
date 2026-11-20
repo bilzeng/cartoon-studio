@@ -1,0 +1,40 @@
+.panorama-viewer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background: #191a1b;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.panorama-viewer:active { cursor: grabbing; }
+.panorama-viewer:focus-visible { outline: 2px solid var(--accent, #a8dad7); outline-offset: -2px; }
+.panorama-viewer canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
+.panorama-hint {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #17191cbb;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.flow-tile .panorama-hint { transform: scale(var(--tile-tools-scale, 1)); transform-origin: left bottom; }
+.reference-viewer > .panorama-viewer { border-radius: 8px; }
+
+.panorama-viewer .panorama-before {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  clip-path: inset(0 0 0 var(--split));
+}
+.restore-comparison[data-panorama] .panorama-hint { top: 8px; bottom: auto; transform-origin: left top; }
+.restore-viewer-stage[data-panorama] .restore-viewer-mat,
+.restore-viewer-stage[data-panorama] .restore-comparison { width: 100%; height: 100%; }

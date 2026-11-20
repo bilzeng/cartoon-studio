@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Box, Camera, ChevronDown, ChevronLeft, ChevronRight, DiamondPlus, ListVideo, Maximize, Minus, Pause, PersonStanding, Play, Plus, Scissors, SquareDashedMousePointer, Trash2 } from "lucide-react";
+import { Box, Camera, ChevronDown, ChevronLeft, ChevronRight, DiamondPlus, ListVideo, Maximize, Minus, Pause, PersonStanding, Play, Repeat2, Timer, Plus, Scissors, SquareDashedMousePointer, Trash2 } from "lucide-react";
 import { endFrameOf, maxEndFrame, stageFps } from "../../shared/stage-animation";
 import { markerId, stageTracks } from "../../shared/stage-markers";
 
@@ -14,7 +14,7 @@ function combined(base, additions) {
   return [...new Map([...base,...additions].map(m=>[markerId(m),m])).values()];
 }
 
-export function StageTimeline({ stage, track, frame, playing, togglePlay, seek, select, addKey, markers, pick, editKeys, duration, close }) {
+export function StageTimeline({ stage, track, frame, playing, loop, toggleLoop, autoKey, toggleAutoKey, locked, togglePlay, seek, select, addKey, markers, pick, editKeys, duration, close }) {
   const end = endFrameOf(stage);
   const rows = useMemo(()=>stageTracks(stage),[stage]);
   const active = rows.find(r=>r.id === track);
@@ -169,11 +169,13 @@ export function StageTimeline({ stage, track, frame, playing, togglePlay, seek, 
         <button aria-label="上一个关键帧" title="上一个关键帧" disabled={!before} onClick={()=>scrub(before.frame)}><ChevronLeft size={16}/></button>
         <button className="ds-play" aria-label={playing ? "暂停" : "播放"} onClick={togglePlay}>{playing ? <Pause size={14}/> : <Play size={14}/>}</button>
         <button aria-label="下一个关键帧" title="下一个关键帧" disabled={!after} onClick={()=>scrub(after.frame)}><ChevronRight size={16}/></button>
+        <button aria-label="循环播放" aria-pressed={loop} title="循环播放" onClick={toggleLoop}><Repeat2 size={15}/></button>
         <output aria-label="当前时间" title="分 · 秒 · 帧">{timecode(frame)}</output>
       </div>
       <span className="ds-time-divider"/>
       <div className="ds-key-tools">
-        <button disabled={!active || playing} onClick={addKey}>{track==="cuts" ? <Scissors size={14}/> : <DiamondPlus size={15}/>}
+        <button aria-label="自动关键帧" aria-pressed={autoKey} title="自动关键帧：调整对象时在播放头位置记录" onClick={toggleAutoKey}><Timer size={15}/>自动帧</button>
+        <button disabled={!active || locked || playing} onClick={addKey}>{track==="cuts" ? <Scissors size={14}/> : <DiamondPlus size={15}/>}
           {track==="cuts" ? "记录切镜" : "记录关键帧"}</button>
         <button aria-pressed={multi} onClick={()=>setMulti(v=>!v)} title="多选关键帧，可直接点选或拖框"><SquareDashedMousePointer size={15}/>多选</button>
         <button className="ds-delete-keys" disabled={!targets.length || playing} onClick={removeKeys}
