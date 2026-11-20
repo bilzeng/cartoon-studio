@@ -1,6 +1,6 @@
 import { Select } from "./Select";
 import { removeCanvasNodes } from "../shared/canvasGroups";
-import { EnvironmentSettings } from "./EnvironmentSettings";
+import { EnvironmentSettings, environmentEvent } from "./EnvironmentSettings";
 import React, {
   useCallback,
   useEffect,
@@ -61,6 +61,7 @@ import {
 } from "../shared/storyboard";
 import { FlowCanvas } from "./FlowCanvas";
 import { useBoard, useCanvasResults } from "./useBoard";
+import { usePromptOptimizations } from "./usePromptOptimizations";
 export function Editor(props) {
   return (
     <ReactFlowProvider>
@@ -74,6 +75,37 @@ function Workspace({ route, assets, refresh, notify, home }) {
     kind = new URLSearchParams(query).get("add");
   const { board, edit, flush, status, error } = useBoard(id, kind, notify);
   const queueLabels = useCanvasResults(board, edit, refresh);
+  const [canvasEngine, setCanvasEngine] = useState(null);
+  const promptOptimizations = usePromptOptimizations({ board, assets, engine: canvasEngine, edit, notify });
+  useEffect(() => {
+    let active = true;
+    let generation = 0;
+    const load = () => {
+      const seq = ++generation;
+      api("/engine")
+        .then((engine) => active && generation === seq && setCanvasEngine(engine))
+        .catch(() => active && generation === seq && setCanvasEngine({ online: false }));
+    };
+    const storage = (event) => {
+      if (event.key === environmentEvent) load();
+    };
+    const cover = ({ detail }) =>
+      setCanvasEngine((prev) =>
+        prev?.environment === detail.environment
+          ? { ...prev, loraCovers: { ...prev.loraCovers, [detail.name]: detail.url } }
+          : prev,
+      );
+    load();
+    window.addEventListener("studio-lora-cover", cover);
+    window.addEventListener(environmentEvent, load);
+    window.addEventListener("storage", storage);
+    return () => {
+      active = false;
+      window.removeEventListener("studio-lora-cover", cover);
+      window.removeEventListener(environmentEvent, load);
+      window.removeEventListener("storage", storage);
+    };
+  }, []);
   const [engineType, setEngineType] = useState("image"),
     [reference, setReference] = useState("");
   const [draftSeries, setDraftSeries] = useState(defaultSeries),
@@ -478,6 +510,8 @@ function Workspace({ route, assets, refresh, notify, home }) {
           {mode === "canvas" ? (
             <FlowCanvas
               queueLabels={queueLabels}
+              engine={canvasEngine}
+              promptOptimizations={promptOptimizations}
               initialPreviewId={new URLSearchParams(query).get("view") === "compare" ? node?.data.assetId : null}
               {...{
                 board,

@@ -444,6 +444,8 @@ export function PromptOptimizer({ inputError, started, onStart, onCancel }) {
   const [now, setNow] = useState(Date.now);
   const busy = started !== undefined;
   const elapsed = busy ? Math.max(0, now - started) : 0;
+  const seconds = Math.floor(elapsed / 1000);
+  const clock = Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
   useEffect(() => {
     if (started === undefined) return;
     setNow(Date.now());
@@ -460,18 +462,19 @@ export function PromptOptimizer({ inputError, started, onStart, onCancel }) {
     localStorage.setItem(profilePreference, id);
   }
 
-  if (loadError) return <button onClick={() => setReload((n) => n + 1)} title={loadError}>
+  if (loadError && !busy) return <button onClick={() => setReload((n) => n + 1)} title={loadError}>
     <RefreshCw size={14} /> 重试加载优化模型
   </button>;
 
   return (
     <>
       <div className="opt-split" role="group" aria-label="提示词优化">
-        <button type="button" disabled={!selected || busy || !!inputError}
-          title={inputError || (selected ? "使用 " + selected.name + " · " + selected.model : "请先配置提示词模型")}
+        <button className="opt-run" type="button" disabled={!selected || busy || !!inputError}
+          title={busy ? "优化中 · 已用 " + durationText(elapsed)
+            : inputError || (selected ? "使用 " + selected.name + " · " + selected.model : "请先配置提示词模型")}
           aria-busy={busy} aria-label={busy ? "优化中…" : undefined} onClick={() => onStart(selected.id)}>
           {busy ? <LoaderCircle size={14} className="generation-spin" /> : <PencilLine size={14} />}
-          {busy ? <>优化中 <small className="opt-elapsed">{durationText(elapsed)}</small></> : "优化提示词"}
+          {busy ? <>优化中 <small className="opt-elapsed">{clock}</small></> : "优化提示词"}
         </button>
         {busy ? <button type="button" className="opt-cancel" aria-label="取消优化" title="取消优化"
           onClick={onCancel}><X size={14} /></button>

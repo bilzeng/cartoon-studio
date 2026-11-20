@@ -4,7 +4,7 @@ import { api } from "./client";
 import { canvasModelInputs, nodePromptOptimization } from "./canvasModelInputs";
 
 function readRequest(board, nodeId, assets, engine) {
-  const node = board.nodes.find((candidate) => candidate.id === nodeId);
+  const node = board?.nodes.find((candidate) => candidate.id === nodeId);
   if (!node) return null;
   const media = canvasModelInputs(board, node, assets, engine);
   const optimization = nodePromptOptimization(board, node, media);

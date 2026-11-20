@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 import { createServer } from "vite";
 import { makeNode } from "../../shared/studio.js";
 import { h3Opening } from "../../shared/prompt-optimizer.js";
+import { poseSwapModelId } from "../../shared/pose-swap.js";
 
 test("节点内优化提示词、保留进行中的任务和行内素材预览", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "studio-opt-layout-"));
@@ -31,7 +32,10 @@ test("节点内优化提示词、保留进行中的任务和行内素材预览",
     { x: 0, y: 0 },
     { text: source, videoModel: "test-video" },
   );
-  const image = makeNode("image", { x: 600, y: 0 }, { text: "雨中的灯塔", imageModel: "qwen" });
+  const image = makeNode("image", { x: 600, y: 0 }, {
+    text: "雨中的灯塔", imageModel: "qwen",
+    imageLoras: ["风格甲", "风格乙"].map(name => ({ name, strength: 1 })),
+  });
   const audio = makeNode("audio", { x: 1200, y: 0 }, { text: "远处的海浪", audioModel: "sound" });
   const utility = makeNode("audio", { x: 1800, y: 0 }, { audioModel: "extract" });
   const created = await page.request.post(base + "api/projects", {
@@ -43,7 +47,10 @@ test("节点内优化提示词、保留进行中的任务和行内素材预览",
     r.fulfill({
       json: {
         online: true,
-        imageModels: [{ id: "qwen", name: "Qwen Image", family: "qwen21" }],
+        imageModels: [
+          { id: "qwen", name: "Qwen Image", family: "qwen21", loras: ["风格甲", "风格乙"] },
+          { id: poseSwapModelId, name: "姿势换装", hasPrompt: false },
+        ],
         audioModels: [
           { id: "sound", name: "音效", workflow: true, fields: [], mediaSlots: {} },
           { id: "extract", name: "提取音轨", workflow: true, hasPrompt: false, fields: [], mediaSlots: {} },
@@ -168,6 +175,10 @@ test("节点内优化提示词、保留进行中的任务和行内素材预览",
   await selectNode(image);
   await waiting.waitFor();
   assert.equal(await editor.innerText(), first);
+  await button("分镜表").click();
+  await editor.waitFor({ state: "detached" });
+  await button("画布").click();
+  await waiting.waitFor();
   await selectNode(audio);
   assert.equal(await waiting.count(), 0);
   const completed = page.waitForResponse(r => r.request().method() === "PUT" &&
@@ -180,17 +191,26 @@ test("节点内优化提示词、保留进行中的任务和行内素材预览",
   await selectNode(image);
   assert.equal(await editor.innerText(), reply);
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.clock.install();
   let release;
   hold = new Promise(resolve => { release = resolve; });
   const started = page.waitForRequest("**/api/prompt-optimizer/run");
+  const toolGroup = page.getByRole("group", { name: "提示词优化" });
+  const idleBounds = await toolGroup.boundingBox();
+  const firstTool = button("上传");
   await optimize.click();
   await started;
   assert.ok(await waiting.isDisabled());
   assert.equal(await waiting.locator(".generation-spin").evaluate(el => getComputedStyle(el).animationDuration), "1s");
-  await waiting.getByText(/[1-9] 秒/).waitFor();
-  // Even when tools wrap, the menu remains aligned with the first row.
+  for (const [delay, time] of [[33000, /0:3[3-9]/], [30000, /1:0[3-9]/]]) {
+    await page.clock.fastForward(delay);
+    await waiting.getByText(time).waitFor();
+    const during = await toolGroup.boundingBox();
+    assert.ok(Math.abs(during.y - (await firstTool.boundingBox()).y) <= 2);
+    assert.equal(during.width, idleBounds.width);
+    assert.equal(during.x, idleBounds.x);
+  }
   const more = button("节点操作");
-  const firstTool = button("上传");
   assert.ok(Math.abs((await more.boundingBox()).y - (await firstTool.boundingBox()).y) <= 2);
   await more.click();
   assert.equal(await more.getAttribute("aria-expanded"), "true");

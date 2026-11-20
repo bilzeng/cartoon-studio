@@ -55,7 +55,6 @@ import {
   Maximize2,
 } from "lucide-react";
 import { useCanvasSelection } from "./useCanvasSelection";
-import { usePromptOptimizations } from "./usePromptOptimizations";
 import { AssetPreview, icons, Media, Modal } from "./ui";
 import {
   canvasGroups,
@@ -75,7 +74,6 @@ import { newStage } from "../shared/director-stage";
 import { outputSize, isVideoUpscale } from "../shared/generation-size";
 import { poseSwapModelId } from "../shared/pose-swap";
 import { frameAsset, kinds, makeId, makeNode } from "../shared/studio";
-import { environmentEvent } from "./EnvironmentSettings";
 import { NodeComposer } from "./NodeComposer";
 import { RestoreComparison, restoreOriginal } from "./RestoreComparison";
 import { AssetFileActions } from "./AssetFileActions";
@@ -453,6 +451,8 @@ export function FlowCanvas({
   board,
   queueLabels,
   assets: catalog,
+  engine,
+  promptOptimizations,
   selected,
   initialPreviewId,
   select: selectSingle,
@@ -483,8 +483,7 @@ export function FlowCanvas({
     [edgesVisible, showEdges] = useState(true),
     [snap, setSnap] = useState(false),
     [chosenEdge, setEdge] = useState(""),
-    [deletion, setDeletion] = useState(null),
-    [engine, setEngine] = useState(null);
+    [deletion, setDeletion] = useState(null);
   const {
     screenToFlowPosition,
     fitView,
@@ -503,7 +502,6 @@ export function FlowCanvas({
     const inferred = panoramaLineage(legacyRoots, sources);
     return catalog.map(a => a.kind === "image" && !a.panorama && inferred.has(a.id) ? { ...a, panorama: true } : a);
   }, [catalog, board.nodes]);
-  const promptOptimizations = usePromptOptimizations({ board, assets, engine, edit, notify });
   const preview = previewId && assets.find(a => a.id === previewId);
   const [stageId, setStageId] = useState("");
   const stageNode = board.nodes.find(n => n.id === stageId && n.data.kind === "stage");
@@ -690,41 +688,6 @@ export function FlowCanvas({
     ro.observe(composer.current);
     return () => ro.disconnect();
   }, [selected]);
-  useEffect(() => {
-    let active = true,
-      generation = 0;
-    const load = () => {
-      const seq = ++generation;
-      setEngine(null);
-      api("/engine")
-        .then((e) => active && generation === seq && setEngine(e))
-        .catch(
-          () => active && generation === seq && setEngine({ online: false }),
-        );
-    };
-    const storage = (e) => {
-      if (e.key === environmentEvent) load();
-    };
-    load();
-    const cover = ({ detail }) =>
-      setEngine((prev) =>
-        prev?.environment === detail.environment
-          ? {
-              ...prev,
-              loraCovers: { ...prev.loraCovers, [detail.name]: detail.url },
-            }
-          : prev,
-      );
-    window.addEventListener("studio-lora-cover", cover);
-    window.addEventListener(environmentEvent, load);
-    window.addEventListener("storage", storage);
-    return () => {
-      active = false;
-      window.removeEventListener("studio-lora-cover", cover);
-      window.removeEventListener(environmentEvent, load);
-      window.removeEventListener("storage", storage);
-    };
-  }, []);
   useEffect(() => {
     const key = (e) => {
       if (document.querySelector("dialog[open]") || e.defaultPrevented) return;

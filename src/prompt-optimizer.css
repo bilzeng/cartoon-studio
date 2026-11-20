@@ -117,6 +117,16 @@
   display: inline-flex;
   align-items: stretch;
 }
+.composer-chips .opt-run {
+  flex: 0 0 94px;
+  width: 94px;
+  padding-inline: 3px;
+  gap: 3px;
+  justify-content: center;
+}
+.opt-run svg {
+  flex-shrink: 0;
+}
 .composer-chips .opt-split > button:first-child:not(:only-child) {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
@@ -132,8 +142,9 @@
   padding: 0;
   justify-content: center;
 }
-.opt-elapsed {
+.opt-run .opt-elapsed {
   color: #c5cdcd;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
