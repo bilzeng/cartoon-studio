@@ -199,7 +199,19 @@ dialog.director-stage[data-timeline=true] { grid-template-rows:50px minmax(0,1fr
   .ds-track-label .ds-track-name { gap:4px; }
 }
 
-.ds-background .ds-model-open { width:100%; margin-bottom:16px; }
+.ds-background .ds-model-open { width:100%; }
+.ds-library-links { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:16px; }
+.ds-library-links .ds-model-open:first-child { grid-column:1/-1; }
+.ds-library-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.ds-library-toolbar .studio-select,.ds-formation .studio-select { padding:0 8px; min-height:32px; border:1px solid #454b4b; }
+.ds-library-toolbar button,.ds-imported-models button { display:flex; align-items:center; gap:7px; }
+.ds-library-toolbar .primary { min-height:32px; padding:0 10px; }
+.ds-imported-models { display:grid; gap:5px; }
+.ds-imported-models button { min-width:0; min-height:36px; text-align:left; padding:4px 8px; border:1px solid #454b4b; }
+.ds-imported-models span { flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.ds-model-library p[role=alert] { margin:0; color:#f0a098; }
+.ds-properties .ds-lens { padding-bottom:12px; border-bottom:1px solid #454b4b; }
+.ds-properties .ds-lens .ds-inline { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .ds-model-library { max-height:65dvh; overflow:auto; display:grid; gap:16px; }
 .ds-model-library h3 { color:#c4cecb; margin:0 0 6px; }
 .ds-model-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }

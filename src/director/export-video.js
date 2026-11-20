@@ -9,6 +9,8 @@ export function videoSize(ratio) {
 export async function encodeTimeline(viewport, stage, signal, onProgress) {
   const [width,height] = videoSize(stage.ratio), count = endFrameOf(stage);
   signal.throwIfAborted();
+  await viewport.prepareModels(stage);
+  signal.throwIfAborted();
   const worker = new Worker(new URL("./video-worker.js",import.meta.url));
   let pending, failure, render;
   const fail = error => { failure = error; pending?.reject(error); };

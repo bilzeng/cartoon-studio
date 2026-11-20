@@ -1,4 +1,5 @@
 import { endFrameOf, keyValues, maxEndFrame, sampleObject } from "./stage-animation.js";
+import { maxStageFov, minStageFov } from "./stage-lens.js";
 
 export const cameraMoves = {
   push:"推近", pull:"拉远", truckRight:"向右横移", truckLeft:"向左横移",
@@ -71,7 +72,7 @@ export function addCameraMove(stage, id, { move, start, frames, amount, targetId
       const depth = subjectDepth(frame,values.position);
       if (Math.min(initialDepth,depth) <= .04) throw Error("变焦主体需要在镜头前方，请减小推进距离或调整机位");
       values.fov = 2*Math.atan(Math.tan(rad(first.fov)/2)*initialDepth/depth)*180/Math.PI;
-      if (values.fov < 15 || values.fov > 100) throw Error("变焦超出机位视角范围，请减小推进距离");
+      if (values.fov < minStageFov || values.fov > maxStageFov) throw Error("变焦超出机位视角范围，请减小推进距离");
     } else if (curved) {
       // A quarter-arc into the shot, or a travelling shot that crosses its centreline.
       const depth = move === "arcPush" ? Math.sin(t*Math.PI/2) : t;

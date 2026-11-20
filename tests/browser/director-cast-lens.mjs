@@ -1,0 +1,115 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {mkdtemp,rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import path from "node:path";
+import {chromium} from "playwright";
+import {createServer} from "vite";
+import {makeNode} from "../../shared/studio.js";
+import {focalLengthForFov} from "../../shared/stage-lens.js";
+import {sampleStage} from "../../shared/stage-animation.js";
+
+test("群演体型、手持道具、导入模型和镜头参数可以保存并用于截图和导出", async t => {
+  const dir = await mkdtemp(path.join(tmpdir(),"studio-cast-lens-"));
+  process.env.STUDIO_DATA_DIR = dir;
+  t.after(() => rm(dir,{recursive:true,force:true}));
+  const vite = await createServer({server:{port:0,strictPort:false,hmr:false},logLevel:"error"});
+  t.after(() => vite.close());
+  await vite.listen();
+  const browser = await chromium.launch({args:["--use-angle=swiftshader","--enable-unsafe-swiftshader"]});
+  t.after(() => browser.close());
+  const page = await browser.newPage({viewport:{width:1440,height:900}});
+  page.setDefaultTimeout(12000);
+  const errors = [];
+  page.on("pageerror",error => errors.push(error.message));
+  page.on("console",message => { if (/WebGL.*(?:ERROR|INVALID)|Shader Error/.test(message.text())) errors.push(message.text()); });
+  const base = vite.resolvedUrls.local[0];
+  const node = makeNode("stage",{x:0,y:0},{title:"镜头测试"});
+  node.data.stage.animation = {endFrame:12,cuts:[]};
+  const created = await page.request.post(base+"api/projects",{data:{
+    board:{name:"群演与机位",nodes:[node],edges:[],order:[]},
+  }});
+  assert.equal(created.status(),201);
+  const {id} = await created.json();
+  const endpoint = base+"api/projects/"+id;
+  const button = name => page.getByRole("button",{name,exact:true});
+  const dialog = name => page.getByRole("dialog",{name,exact:true});
+  async function option(label,name) {
+    await page.getByRole("combobox",{name:label,exact:true}).click();
+    await page.getByRole("option",{name,exact:true}).click();
+  }
+  await page.goto(base+"#project/"+id);
+  await button("打开导演台").click();
+  await button("布置群演").click();
+  await button("交错排列").click();
+  await button("放入场景").click();
+  await button("群演 6").waitFor();
+  await button("兵器库").click();
+  await option("道具放置方式","装备到右手");
+  await button("装备古风长剑").click();
+  await button("动作库").click();
+  await button("武打").click();
+  await button("剑花收势").click();
+  await button("预览动作").click();
+  await button("停止预览").click();
+  await button("导入模型").click();
+  await option("模型放置方式","作为角色放入");
+  await page.getByLabel("三维模型文件").setInputFiles({name:"调度模型.obj",mimeType:"text/plain",
+    buffer:Buffer.from("v 0 0 0\nv 1 0 0\nv 0 1 0\nv 0 0 1\nf 1 3 2\nf 1 2 4\nf 2 3 4\nf 3 1 4\n")});
+  await button("调度模型").waitFor();
+  const camera = page.locator(".ds-object").filter({hasText:"机位 1"});
+  await camera.click();
+  await option("焦段预设","85 mm · 长焦");
+  await option("光圈","f/1.2");
+  const focus = page.getByRole("spinbutton",{name:"对焦距离（米）"});
+  await focus.fill("3.5");
+  await focus.press("Enter");
+  async function take() {
+    await button("构图出片").click();
+    const image = page.getByRole("img",{name:"当前机位的构图截图"});
+    await image.waitFor();
+    const png = await image.evaluate(async img => {
+      await img.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = 320; canvas.height = 180;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img,0,0,320,180);
+      return {width:img.naturalWidth,data:Array.from(ctx.getImageData(0,0,320,180).data)};
+    });
+    await dialog("构图出片").getByRole("button",{name:"关闭",exact:true}).click();
+    return png;
+  }
+  const open = await take();
+  await option("光圈","f/22");
+  const closed = await take();
+  assert.equal(open.width,1920);
+  assert.ok(open.data.filter((v,i) => Math.abs(v-closed.data[i]) > 9).length > 30);
+  await button("动画时间轴").click();
+  await page.getByLabel("时间轴播放头").press("End");
+  await option("焦段预设","35 mm · 广角");
+  await option("光圈","f/2.8");
+  await button("导出视频到画布").click();
+  await button("导出到画布").click();
+  await dialog("3D 导演台").waitFor({state:"detached",timeout:90000});
+  const saved = await (await page.request.get(endpoint)).json();
+  assert.ok(saved.nodes.some(n => n.data.kind === "video" && n.data.assetId));
+  const stage = saved.nodes.find(n => n.id === node.id).data.stage;
+  const cast = stage.objects.filter(o => o.name.startsWith("群演"));
+  assert.equal(new Set(cast.map(o => o.body)).size,6);
+  assert.equal(stage.objects[0].equipment.right,"straightSword");
+  assert.equal(stage.objects[0].pose,"swordFlourish");
+  const model = stage.objects.find(o => o.name === "调度模型");
+  const assets = await (await page.request.get(base+"api/assets")).json();
+  const asset = assets.find(a => a.id === model.modelAssetId);
+  assert.equal(model.type,"actor");
+  assert.equal(asset.model.format,"obj");
+  assert.ok((await page.request.get(new URL(asset.url,base).href)).ok());
+  const lens = sampleStage(stage,6).objects.find(o => o.type === "camera");
+  assert.ok(focalLengthForFov(lens.fov) > 35 && focalLengthForFov(lens.fov) < 85);
+  assert.ok(Math.abs(lens.aperture-12.4) < .0001);
+  assert.equal(lens.focusDistance,3.5);
+  await page.reload();
+  await button("打开导演台").click();
+  await button("调度模型").waitFor();
+  assert.deepEqual(errors,[]);
+});

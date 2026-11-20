@@ -21,6 +21,13 @@ export function propMesh({shape,color}) {
   function cylinder(w,h,d,x,y,z,tone) {
     return part(new T.CylinderGeometry(.5,.5,1,24),[w,h,d],x,y+h/2,z,tone);
   }
+  function outline(points, thickness, tone = light) {
+    const face = new T.Shape();
+    face.moveTo(...points[0]);
+    for (const point of points.slice(1)) face.lineTo(...point);
+    face.closePath();
+    return part(new T.ExtrudeGeometry(face, { depth: thickness, bevelEnabled: false }),[1,1,1],0,0,-thickness/2,tone);
+  }
   function legs(w,h,d,x,z) {
     for (const side of [-1,1]) for (const end of [-1,1]) box(w,h,d,x*side,0,z*end,shade);
   }
@@ -65,6 +72,36 @@ export function propMesh({shape,color}) {
       cylinder(.57,.075,.57,-.16,0,0,shade); cylinder(.13,.87,.15,-.16,.06,0);
       box(.67,.035,.12,.11,.90,0); cylinder(.57,.055,.7,.21,.945,0,shade);
       cylinder(.53,.035,.66,.21,.91,0,"#e5d5a3"); break;
+    case "straightSword":
+    case "propDagger":
+      cylinder(.21,.23,.7,0,0,0,shade); box(.94,.065,.82,0,.22,0);
+      outline([[-.24,.27],[.24,.27],[.23,.76],[0,1],[-.23,.76]],.42);
+      outline([[0,.29],[.09,.69],[0,.95],[-.09,.69]],.44,base); break;
+    case "curvedBlade":
+      cylinder(.18,.23,.7,-.09,0,0,shade); box(.65,.055,.80,-.09,.22,0,base);
+      outline([[-.27,.26],[.06,.26],[.21,.63],[.47,.87],[.38,1],[.10,.91],[-.2,.66]],.45); break;
+    case "stageStaff":
+      cylinder(.74,1,.74,0,0,0);
+      for (const y of [0,.44,.52,.95]) cylinder(.93,.045,.93,0,y,0,shade);
+      break;
+    case "stageSpear":
+    case "stageHalberd":
+      cylinder(.14,.87,.68,0,0,0,"#836349"); box(.25,.057,.82,0,.76,0,shade);
+      outline([[-.23,.82],[0,.99],[.23,.82],[0,.78]],.52);
+      if (shape === "stageHalberd") outline([[.07,.78],[.38,.80],[.49,.94],[.50,.82],[.35,.73],[.08,.73]],.46);
+      break;
+    case "moonShield": {
+      const disc = (radius, depth, z, tone) => {
+        const mesh = part(new T.CylinderGeometry(radius,radius,depth,32),[1,1,1],0,.5,z,tone);
+        mesh.rotation.x = Math.PI/2;
+      };
+      disc(.5,.48,0,shade); disc(.43,.25,.27,base); disc(.125,.16,.43,light);
+      break;
+    }
+    case "fantasyHammer":
+      cylinder(.19,.78,.55,0,0,0,shade);
+      part(new T.IcosahedronGeometry(.5,0),[1,.31,1],0,.82,0);
+      box(.62,.09,.84,0,.76,0,light); break;
     case "sphere": part(new T.SphereGeometry(.5,28,18),[1,1,1],0,.5,0); break;
     case "cylinder": cylinder(1,1,1,0,0,0); break;
     default: box(1,1,1,0,0,0);

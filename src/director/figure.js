@@ -1,9 +1,19 @@
 import * as T from "three";
-import { actionPresets } from "../../shared/stage-actions.js";
+import { actionAngles, actionPresets } from "../../shared/stage-actions.js";
+import { castProfiles } from "../../shared/stage-cast.js";
+import { weaponCatalog } from "../../shared/stage-props.js";
+import { propMesh } from "./props.js";
 
 // Local coordinates use metres, with the soles on the ground and the face toward +Z.
-export function figure(color, pose) {
-  const group = new T.Group();
+export function figure(color, pose, body, equipment) {
+  const profile = castProfiles[body] || castProfiles.standard;
+  const { shoulders, waist, build, head: headSize } = profile;
+  const root = new T.Group();
+  const group = profile.height === 1 && actionPresets[pose]?.category !== "武打" ? root : new T.Group();
+  if (group !== root) {
+    group.scale.y = profile.height;
+    root.add(group);
+  }
   const shell = new T.MeshStandardMaterial({ color, roughness: 0.62 });
   const joint = new T.MeshStandardMaterial({ color: new T.Color(color).multiplyScalar(0.5), roughness: 0.85 });
   const unit = new T.SphereGeometry(1, 24, 16);
@@ -39,18 +49,29 @@ export function figure(color, pose) {
   const seated = pose === "seated", kneeling = pose === "kneeling" || pose === "halfKneel", crouching = pose === "crouching";
   const step = pose === "walking" || pose === "running";
   const offset = seated ? -.43 : kneeling ? -.40 : crouching ? -.50 : 0;
-  const rest = actionPresets[pose]?.angles || {};
   const radians = T.MathUtils.degToRad;
-  shellProfile([[0,0],[0.082,0.024],[0.16,0.076],[0.177,0.13],[0.162,0.19],[0.126,0.22],[0,0.22]], 0.84 + offset, 0.78);
-  oval(0, 1.13 + offset, 0, 0.14, 0.14, 0.102, joint);
-  shellProfile([[0,0],[0.123,0.008],[0.153,0.069],[0.194,0.16],[0.21,0.225],[0.205,0.259],[0.158,0.291],[0.074,0.317],[0,0.32]], 1.18 + offset, 0.69);
-  oval(0, 1.53 + offset, 0, 0.068, 0.088, 0.068, joint);
+  const hips = shellProfile([[0,0],[0.082,0.024],[0.16,0.076],[0.177,0.13],[0.162,0.19],[0.126,0.22],[0,0.22]], 0.84 + offset, .78 * waist);
+  hips.scale.x = waist;
+  oval(0, 1.13 + offset, 0, .14 * waist, .14, .102 * waist, joint);
+  shellProfile([[0,0],[0.123*waist,0.008],[0.153*waist,0.069],[0.194*shoulders,0.16],[0.21*shoulders,0.225],[0.205*shoulders,0.259],[0.158*shoulders,0.291],[0.074,0.317],[0,0.32]], 1.18 + offset, .69 * build);
+  oval(0, 1.53 + offset, 0, .068 * build, .088, .068 * build, joint);
   const head = shellProfile([[0,0],[0.052,0.01],[0.079,0.042],[0.103,0.098],[0.111,0.169],[0.106,0.218],[0.085,0.254],[0.049,0.275],[0,0.28]], 1.551 + offset, 1.02);
   head.name = "head";
+  head.scale.x = headSize;
+  head.scale.z *= headSize;
   const neck = new T.Group();
   neck.position.copy(head.position);
-  const nose = oval(0, 1.684 + offset, 0.118, 0.018, 0.026, 0.021);
-  for (const part of [head,nose]) { part.position.sub(neck.position); neck.add(part); }
+  const nose = oval(0, 1.684 + offset, .118 * headSize, .018, .026, .021);
+  const headParts = [head, nose];
+  if (profile.detail === "cap") {
+    headParts.push(oval(0, 1.79 + offset, .015, .126 * headSize, .045, .126 * headSize, joint));
+    headParts.push(oval(0, 1.779 + offset, .098, .115 * headSize, .014, .108 * headSize, joint));
+  }
+  if (profile.detail === "collar") oval(0, 1.505 + offset, 0, .127, .048, .109, joint);
+  if (profile.detail === "vest") {
+    for (const x of [-.113, .113]) oval(x * shoulders, 1.331 + offset, .094 * build, .059 * shoulders, .13, .057 * build, joint);
+  }
+  for (const part of headParts) { part.position.sub(neck.position); neck.add(part); }
   group.add(neck);
   const torso = new T.Group();
   const waistHeight = .918 + offset;
@@ -59,19 +80,19 @@ export function figure(color, pose) {
   const torsoRotation = new T.Euler(0,0,0,"YXZ"), atWaist = new T.Vector3();
   const animateSides = [];
   for (const sign of [-1, 1]) {
-    const hip = [0.103 * sign, 0.918 + offset, 0];
-    const knee = [0.113 * sign, seated ? 0.47 : 0.5, seated ? 0.39 : step ? 0.17 * sign + 0.055 : 0.018];
-    const ankle = [0.13 * sign, step && sign < 0 ? 0.17 : 0.105, seated ? 0.40 : step ? 0.31 * sign : -0.025];
+    const hip = [.103 * sign * waist, 0.918 + offset, 0];
+    const knee = [.113 * sign * waist, seated ? 0.47 : 0.5, seated ? 0.39 : step ? 0.17 * sign + 0.055 : 0.018];
+    const ankle = [.13 * sign * waist, step && sign < 0 ? 0.17 : 0.105, seated ? 0.40 : step ? 0.31 * sign : -0.025];
     if (kneeling) { knee.splice(1,2,.085,.09); ankle.splice(1,2,.105,-.33); }
     if (pose === "halfKneel" && sign === 1) { knee.splice(1,2,.52,.43); ankle.splice(1,2,.105,.43); }
     if (crouching) { knee.splice(1,2,.23,.34); ankle.splice(1,2,.105,-.035); }
-    const thigh = limb(hip, knee, 0.096, 0.10);
-    const kneecap = oval(...knee, 0.07, 0.071, 0.07, joint);
-    const shin = limb(knee, ankle, 0.074);
-    const foot = oval(ankle[0], ankle[1] - 0.047, ankle[2] + 0.069, 0.07, 0.057, 0.143);
-    const shoulder = [0.204 * sign, 1.423 + offset, 0];
-    let elbow = [0.255 * sign, 1.16 + offset, step ? -0.10 * sign : 0.013];
-    let wrist = [0.27 * sign, 0.905 + offset, step ? -0.23 * sign + 0.07 : 0.075];
+    const thigh = limb(hip, knee, .096 * build, .10 * build);
+    const kneecap = oval(...knee, .07 * build, .071, .07 * build, joint);
+    const shin = limb(knee, ankle, .074 * build);
+    const foot = oval(ankle[0], ankle[1] - 0.047, ankle[2] + 0.069, .07 * build, .057, .143 * build);
+    const shoulder = [.204 * sign * shoulders, 1.423 + offset, 0];
+    let elbow = [.255 * sign * shoulders, 1.16 + offset, step ? -0.10 * sign : .013];
+    let wrist = [.27 * sign * shoulders, .905 + offset, step ? -.23 * sign + .07 : .075];
     if (seated) wrist = [0.16 * sign, 0.57, 0.29];
     if (pose === "waving" && sign === -1) { elbow = [-.42,1.57,.02]; wrist = [-.41,1.82,.10]; }
     if (pose === "hips") { elbow = [.41*sign,1.20,.035]; wrist = [.18*sign,1.025,.045]; }
@@ -81,12 +102,22 @@ export function figure(color, pose) {
     } else if (pose === "listening" && sign === 1) {
       elbow = [0.35, 1.33, 0.11]; wrist = [0.13, 1.68, 0.08];
     }
-    const socket = oval(...shoulder, 0.079, 0.081, 0.078);
-    const arm = limb(shoulder, elbow, 0.063);
-    const elbowJoint = oval(...elbow, 0.048, 0.05, 0.048, joint);
-    const forearm = limb(elbow, wrist, 0.054);
-    const hand = oval(...wrist, 0.044, 0.069, 0.037);
+    const socket = oval(...shoulder, .079 * build, .081, .078 * build);
+    const arm = limb(shoulder, elbow, .063 * build);
+    const elbowJoint = oval(...elbow, .048 * build, .05, .048 * build, joint);
+    const forearm = limb(elbow, wrist, .054 * build);
+    const hand = oval(...wrist, .044 * build, .069, .037 * build);
     const side = sign === 1 ? "left" : "right";
+    const weaponId = equipment?.[side];
+    const weapon = weaponCatalog[weaponId];
+    const grip = weapon ? new T.Group() : null;
+    if (grip) {
+      const prop = propMesh({ shape: weaponId, color: weapon.color });
+      prop.scale.fromArray(weapon.size);
+      prop.position.y = -weapon.size[1] * (weaponId === "moonShield" || weaponId === "stageStaff" ? .5 : .13);
+      grip.add(prop);
+      group.add(grip);
+    }
     const upper = new T.Quaternion(), lower = new T.Quaternion(), euler = new T.Euler();
     const mid = new T.Vector3(), tip = new T.Vector3();
     function articulate(root, hinge, end, lift, spread, bend) {
@@ -113,7 +144,7 @@ export function figure(color, pose) {
       const k = [knee[0],mix(knee[1],(a[1]+h[1])/2+bend*dz/reach),
         mix(knee[2],(a[2]+h[2])/2-bend*dy/reach)];
       articulate(h,k,a,value(side+"Hip"),0,-value(side+"Knee"));
-      link(thigh,h,k,.096); link(shin,k,a,.074); kneecap.position.fromArray(k);
+      link(thigh,h,k,.096 * build); link(shin,k,a,.074 * build); kneecap.position.fromArray(k);
       foot.position.set(a[0],a[1]-.047,a[2]+.069);
       const sh = [shoulder[0],shoulder[1]+bob,0];
       const swingArm = ["standing","walking","running"].includes(pose);
@@ -129,17 +160,25 @@ export function figure(color, pose) {
           atWaist.toArray(point);
         }
       }
-      socket.position.fromArray(sh); link(arm,sh,e,.063); elbowJoint.position.fromArray(e);
-      link(forearm,e,wr,.054); hand.position.fromArray(wr);
+      socket.position.fromArray(sh); link(arm,sh,e,.063 * build); elbowJoint.position.fromArray(e);
+      link(forearm,e,wr,.054 * build); hand.position.fromArray(wr);
+      if (grip) {
+        grip.position.fromArray(wr);
+        direction.set(wr[0]-e[0],wr[1]-e[1],wr[2]-e[2]).normalize();
+        grip.quaternion.setFromUnitVectors(axis,direction);
+        grip.rotateX(Math.PI * .62);
+      }
     });
   }
   let lastGait, lastPhase, lastJoints;
-  group.setGait = (travel, phase, joints) => {
+  root.setGait = (travel, phase, joints) => {
     if (travel === lastGait && phase === lastPhase && joints === lastJoints) return;
     lastGait = travel; lastPhase = phase; lastJoints = joints;
     const gait = travel || (step && phase != null ? {phase, weight:1, stride:pose === "running" ? 1.7 : 1.15} : null);
     const bob = gait ? -.032 * (.5+.5*Math.cos(4*Math.PI*gait.phase))*gait.weight : 0;
     const beat = Math.sin(2*Math.PI*(phase || 0));
+    const rest = actionAngles(pose, phase);
+    if (group !== root) group.position.y = rest.lift || 0;
     const value = id => (rest[id] || 0) + (joints?.[id] || 0);
     torso.position.y = waistHeight + bob;
     torsoRotation.set(radians(value("torsoLean")),radians(value("torsoTwist")),0,"YXZ");
@@ -148,8 +187,8 @@ export function figure(color, pose) {
       radians(value("headTurn")),pose === "listening" ? -.17 : 0,"YXZ");
     for (const animate of animateSides) animate(gait,bob,value,beat);
   };
-  group.setGait(null, undefined, undefined);
-  return group;
+  root.setGait(null, undefined, undefined);
+  return root;
 }
 
 export function cameraMarker() {

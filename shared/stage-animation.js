@@ -1,5 +1,6 @@
 import { actionPhase, blendJoints } from "./stage-actions.js";
 import { gaitAt } from "./stage-walk.js";
+import { defaultFocusDistance } from "./stage-lens.js";
 export const stageFps = 24;
 export const defaultEndFrame = 5 * stageFps;
 export const maxEndFrame = 120 * stageFps;
@@ -7,11 +8,25 @@ export const endFrameOf = stage => stage.animation?.endFrame ?? defaultEndFrame;
 
 export function keyValues(item) {
   const fields = { position: [...item.position], rotation: [...item.rotation] };
-  if (item.type === "camera") fields.fov = item.fov;
+  if (item.type === "camera") {
+    fields.fov = item.fov;
+    if (item.aperture !== undefined) fields.aperture = item.aperture;
+    if (item.focusDistance !== undefined) fields.focusDistance = item.focusDistance;
+  }
   if (item.type === "actor") Object.assign(fields, { pose: item.pose, scale: item.scale, joints: item.joints || {} });
   return fields;
 }
 const mix = (a, b, t) => a + (b - a) * t;
+function lensAt(item, left, right, t) {
+  const a = left.aperture === undefined ? item.aperture : left.aperture;
+  const b = right.aperture === undefined ? a : right.aperture;
+  const focus = left.focusDistance ?? item.focusDistance ?? defaultFocusDistance;
+  return {
+    fov:mix(left.fov,right.fov,t),
+    aperture:a == null ? a : mix(a,b ?? a,t),
+    focusDistance:mix(focus,right.focusDistance ?? focus,t),
+  };
+}
 // Normalize angles to [-180, 180) so a pan across north follows the short arc.
 const wrapAngle = angle => ((angle + 180) % 360 + 360) % 360 - 180;
 export function sampleObject(item, frame) {
@@ -25,7 +40,7 @@ export function sampleObject(item, frame) {
       return { ...item, ...left, position:left.position.map((v,i) => mix(v,right.position[i],t)),
         rotation:left.rotation.map((v,i) => wrapAngle(v + wrapAngle(right.rotation[i]-v)*t)),
         ...(item.type === "actor" && { scale:mix(left.scale,right.scale,t), joints:left.pose === right.pose ? blendJoints(left.joints,right.joints,t) : left.joints || {} }),
-        ...(item.type === "camera" && { fov:mix(left.fov,right.fov,t) }) };
+        ...(item.type === "camera" && lensAt(item,left,right,t)) };
     }
     left = right;
   }
@@ -35,6 +50,7 @@ export function sampleStage(stage, frame) {
   const cut = stage.animation?.cuts?.findLast(c => c.frame <= frame);
   return { ...stage, cameraId: cut?.cameraId || stage.cameraId, objects: stage.objects.map(o => {
     let sampled = sampleObject(o,frame);
+    if (o.modelAssetId && o.modelClip != null) sampled = {...sampled,modelTime:frame/stageFps};
     if (o.type !== "actor") return sampled;
     const phase = actionPhase(o,sampled.pose,frame);
     if (phase !== undefined) sampled = {...sampled,actionPhase:phase};

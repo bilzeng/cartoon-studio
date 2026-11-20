@@ -1,5 +1,7 @@
 import { stagePoses, validJoints, stageSwitches } from "./stage-actions.js";
-import { stageShapes } from "./stage-props.js";
+import { stageShapes, weaponCatalog } from "./stage-props.js";
+import { castProfiles } from "./stage-cast.js";
+import { maxStageFov, minStageFov } from "./stage-lens.js";
 import { endFrameOf, maxEndFrame, validMarkers } from "./stage-animation.js";
 export const stageFrames = {
   "16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1440, 1440], "4:3": [1440, 1080], "2.39:1": [1912, 800],
@@ -46,11 +48,20 @@ export function validStage(stage) {
     ids.add(item.id);
     const transform = k => vector(k.position, -100, 100) && vector(k.rotation, -360, 360) &&
       (item.type !== "actor" || (Object.hasOwn(stagePoses, k.pose) && validJoints(k.joints) && inRange(k.scale,0.1,6))) &&
-      (item.type !== "camera" || inRange(k.fov,15,100));
+      (item.type !== "camera" || (inRange(k.fov,minStageFov,maxStageFov) &&
+        (k.aperture == null || inRange(k.aperture,1.2,22)) &&
+        (k.focusDistance === undefined || inRange(k.focusDistance,.2,100))));
     if (!transform(item) || (item.keys !== undefined && !validMarkers(item.keys,end,transform))) return false;
     if (!["camera","prop","actor"].includes(item.type)) return false;
     if (item.type !== "camera" && (typeof item.color !== "string" || !/^#[0-9a-f]{6}$/i.test(item.color))) return false;
     if (item.referenceAssetId != null && (item.type !== "actor" || typeof item.referenceAssetId !== "string" || item.referenceAssetId.length > 160)) return false;
+    if (item.body !== undefined && (item.type !== "actor" || !Object.hasOwn(castProfiles,item.body))) return false;
+    if (item.equipment !== undefined && (item.type !== "actor" || !item.equipment || Array.isArray(item.equipment) ||
+        typeof item.equipment !== "object" || !Object.entries(item.equipment).every(([hand, prop]) =>
+          ["left","right"].includes(hand) && (prop === "" || Object.hasOwn(weaponCatalog,prop))))) return false;
+    if (item.modelAssetId != null && (item.type === "camera" || typeof item.modelAssetId !== "string" ||
+        !item.modelAssetId || item.modelAssetId.length > 160)) return false;
+    if (item.modelClip != null && (!item.modelAssetId || !inRange(item.modelClip,0,1023) || !Number.isInteger(item.modelClip))) return false;
     if (item.type === "prop" && (!Object.hasOwn(stageShapes,item.shape) || !vector(item.size,0.02,100))) return false;
   }
   if (stage.animation !== undefined && (!stage.animation || !validMarkers(stage.animation.cuts,end,

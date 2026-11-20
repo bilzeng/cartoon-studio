@@ -20,7 +20,9 @@ export function stageIsUntouched(stage) {
   if (stage.objects.length !== 2 || stage.animation || stage.backgroundId || stage.referenceIds?.length) return false;
   return ["actor","camera"].every(type => {
     const item = stage.objects.find(o => o.type === type);
-    if (!item || item.keys?.length || item.referenceAssetId || item.locked || item.hidden || Object.values(item.joints || {}).some(Boolean)) return false;
+    if (!item || item.keys?.length || item.referenceAssetId || item.modelAssetId || item.body || item.aperture != null ||
+        item.focusDistance !== undefined || Object.values(item.equipment || {}).some(Boolean) ||
+        item.locked || item.hidden || Object.values(item.joints || {}).some(Boolean)) return false;
     const model = stageObject(type);
     return Object.keys(model).every(k => k === "id" || JSON.stringify(model[k]) === JSON.stringify(item[k]));
   });

@@ -27,7 +27,11 @@ export function StageActions({ actor, timeline, frame, patch, viewport, busy }) 
   useEffect(() => {
     if (previews) return;
     try {
-      previews = modelPreviews(Object.entries(actionPresets),id => figure("#afcec5",id),
+      previews = modelPreviews(Object.entries(actionPresets),id => {
+        const model = figure("#afcec5",id);
+        if (actionPresets[id].category === "武打") model.setGait(undefined,.4);
+        return model;
+      },
         {width:108,height:108,elevation:1});
       setImages(previews);
     } catch { /* Accessible preset names also work on devices without a second GL context. */ }
@@ -36,7 +40,7 @@ export function StageActions({ actor, timeline, frame, patch, viewport, busy }) 
     "右臂":["rightArm","rightSpread","rightElbow"],"左腿":["leftHip","leftKnee"],"右腿":["rightHip","rightKnee"]};
   return <section className="ds-actions" aria-label="角色动作库">
     <div className="ds-action-target"><strong>{actor.name}</strong><span>{timeline ? "第 "+frame+" 帧" : "基础姿势"}</span></div>
-    <div className="ds-action-categories" role="group" aria-label="动作分类">{["全部","姿态","移动","交流"].map(label =>
+    <div className="ds-action-categories" role="group" aria-label="动作分类">{["全部","姿态","移动","交流","武打"].map(label =>
       <button key={label} aria-pressed={category === label} onClick={() => setCategory(label)}>{label}</button>)}</div>
     <div className="ds-action-grid">{Object.entries(actionPresets).filter(([,p]) => category === "全部" || category === p.category).map(([id,p]) =>
       <button key={id} aria-pressed={actor.pose === id} onClick={() => { if (actor.pose !== id) patch({pose:id,joints:{}}); }}>

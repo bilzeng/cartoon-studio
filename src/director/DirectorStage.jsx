@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Aperture, ArrowLeft, Eye, EyeOff, LockKeyhole, LockKeyholeOpen, Settings2, Undo2, Redo2, Box, Camera, Check, Crosshair, ImagePlus, Layers, Move, Orbit, PersonStanding, Plus, Footprints, Film, RotateCcw, RotateCw, ScanEye, ListVideo, Route, SlidersHorizontal, Trash2, Video, X } from "lucide-react";
+import { Aperture, ArrowLeft, Eye, EyeOff, LockKeyhole, LockKeyholeOpen, Settings2, Undo2, Redo2, Box, Camera, Check, Crosshair, ImagePlus, Layers, Move, Orbit, PersonStanding, Plus, Footprints, Film, RotateCcw, RotateCw, ScanEye, ListVideo, Route, SlidersHorizontal, Swords, Trash2, Upload, Video, X } from "lucide-react";
 import { stageFrames, stageObject, stagePoses, stageShapes } from "../../shared/director-stage";
 import { StageActions } from "./StageActions";
 import { stageSwitches, switchOn } from "../../shared/stage-actions";
@@ -8,10 +8,14 @@ import { addFormation } from "../../shared/stage-composition";
 import { StageFormation } from "./StageFormation";
 import { StageComposition } from "./StageComposition";
 import { Select } from "../Select";
-import { uploadAsset } from "../client";
+import { api, uploadAsset } from "../client";
 import { StageTimeline } from "./StageTimeline";
 import { addCameraMove } from "../../shared/stage-camera";
-import { propCatalog } from "../../shared/stage-props";
+import { propCatalog, weaponCatalog } from "../../shared/stage-props";
+import { castProfiles } from "../../shared/stage-cast";
+import { defaultFocusDistance, focalLengthForFov, fovForFocalLength, lensPresets, maxFocalLength, minFocalLength, maxStageFov, minStageFov } from "../../shared/stage-lens";
+import { stageModelLimit } from "../../shared/stage-model";
+import { disposeStageModel, parseStageModel } from "./imported-models";
 import { StageExport } from "./StageExport";
 import { StageModels } from "./StageModels";
 import { CameraMotion } from "./CameraMotion";
@@ -48,6 +52,38 @@ function Axes({ field, label, item, apply }) {
 function Tool({ icon: Icon, label, active, ...props }) {
   return <button type="button" title={label} aria-label={label} aria-pressed={active} {...props}><Icon size={16} /></button>;
 }
+function CameraLens({ item, change }) {
+  const focalLength = Math.round(focalLengthForFov(item.fov)*10)/10;
+  const apertures = [1.2,1.4,2,2.8,4,5.6,8,11,16,22];
+  if (item.aperture != null && !apertures.includes(item.aperture)) apertures.push(item.aperture);
+  return <fieldset className="ds-lens"><legend>镜头</legend>
+    <label>焦段预设<Select aria-label="焦段预设" value={lensPresets.includes(focalLength) ? focalLength : ""} onValueChange={mm => {
+      if (mm) change({fov:fovForFocalLength(Number(mm))});
+    }}><option value="" disabled>自定义焦距</option>
+      {lensPresets.map(mm => <option key={mm} value={mm}>{mm+" mm · "+(mm < 40 ? "广角" : mm === 50 ? "标准" : "长焦")}</option>)}
+    </Select></label>
+    <div className="ds-inline">
+      <div className="ds-field">焦距<NumberField label="焦距（毫米）" prefix="mm" value={focalLength} min={minFocalLength}
+        max={maxFocalLength} step={1} change={mm => change({fov:fovForFocalLength(mm)})}/></div>
+      <label>光圈<Select aria-label="光圈" value={item.aperture ?? ""} onValueChange={value => change({aperture:value ? Number(value) : null})}>
+        <option value="">景深关闭</option>{apertures.map(n => <option key={n} value={n}>{"f/"+Number(n.toFixed(2))}</option>)}
+      </Select></label>
+    </div>
+    <div className="ds-inline">
+      <div className="ds-field">对焦距离<NumberField label="对焦距离（米）" prefix="m" value={item.focusDistance ?? defaultFocusDistance}
+        min={.2} max={100} step={.1} change={focusDistance => change({focusDistance})}/></div>
+      <div className="ds-field">垂直视角<NumberField label="机位视角角度" prefix="°" value={item.fov}
+        min={minStageFov} max={maxStageFov} step={1} change={fov => change({fov})}/></div>
+    </div>
+  </fieldset>;
+}
+function ImportedAnimation({ asset, clip, change }) {
+  if (!asset?.model?.clips.length) return null;
+  return <label>模型自带动画<Select aria-label="模型自带动画" value={clip ?? ""}
+    onValueChange={value => change(value === "" ? null : Number(value))}>
+    <option value="">静止</option>{asset.model.clips.map((name,index) => <option key={index} value={index}>{name}</option>)}
+  </Select><small>在动画时间轴播放和出片时循环。</small></label>;
+}
 export default function DirectorStage({ node, board, assets, editStage:writeStage, captureFrame, captureVideo, refresh, close, status, flush }) {
   const base = node.data.stage;
   const [timeline,setTimeline] = useState(false), [vision,setVision] = useState(false);
@@ -56,7 +92,7 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
   const monitor = useRef(null);
   const [inspectorTab,setInspectorTab] = useState("properties");
   const [autoKey,setAutoKey] = useState(true), [loop,setLoop] = useState(false);
-  const [library,setLibrary] = useState(false);
+  const [library,setLibrary] = useState(""), [modelError,setModelError] = useState("");
   const [exportOpen,setExportOpen] = useState(false);
   const [walkMode,setWalkMode] = useState(false), [speed,setSpeed] = useState("1.35");
   const walkStart = useRef(0), previewEnd = useRef(null);
@@ -135,7 +171,7 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
     const object = base.objects.find(o=>o.id===id);
     if (!object || object.locked) return;
     setPlaying(false);
-    if (timeline && Object.keys(fields).some(k => ["position","rotation","pose","joints","scale","fov"].includes(k))) {
+    if (timeline && Object.keys(fields).some(k => ["position","rotation","pose","joints","scale","fov","aperture","focusDistance"].includes(k))) {
       if (!autoKey && !object.keys?.some(k => k.frame === frameRef.current)) {
         setError("自动关键帧已关闭，请先点「记录关键帧」"); return;
       }
@@ -228,8 +264,8 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
   const editableFrame = !timeline || autoKey || base.objects.find(o => o.id === selected)?.keys?.some(k => k.frame === frame);
   const sceneTool = playing ? "orbit" : walkMode ? "walk" : editableFrame ? tool : "orbit";
   useEffect(() => {
-    viewport.current?.update(stage, selected, view, sceneTool, background?.url);
-  }, [ready, stage, selected, view, sceneTool, background?.url]);
+    viewport.current?.update(stage, selected, view, sceneTool, background?.url,assets);
+  }, [ready, stage, selected, view, sceneTool, background?.url,assets]);
   const item = stage.objects.find(o => o.id === selected);
   const cameras = stage.objects.filter(o => o.type === "camera");
   const railCamera = base.objects.find(o => o.id === (item?.type === "camera" ? selected : stage.cameraId));
@@ -262,8 +298,8 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
       setError(""); setFeedback("已调整当前机位");
     } catch (e) { setError(e.message); }
   }
-  function openLibrary() { setPlaying(false); setLibrary(true); }
-  function add(type, shape) {
+  function openLibrary(mode = "props") { setPlaying(false); setModelError(""); setLibrary(mode); }
+  function add(type, shape, asset) {
     setPlaying(false); setWalkMode(false); setCutTrack(false);
     if (stage.objects.length >= 64) { setError("场景最多支持 64 个对象"); return; }
     const created = stageObject(type, stage.objects.filter(o => o.type === type).length);
@@ -271,8 +307,9 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
       const model = propCatalog[shape];
       Object.assign(created,{name:model.name,shape,size:[...model.size],color:model.color});
     }
+    if (asset) Object.assign(created,{name:asset.name.replace(/\.[^.]+$/,"").slice(0,72),modelAssetId:asset.id});
     const names = new Set(stage.objects.map(o => o.name));
-    const stem = type === "prop" && shape ? propCatalog[shape].name : ({actor:"角色",camera:"机位",prop:"布景"}[type]);
+    const stem = asset ? created.name : shape ? propCatalog[shape].name : ({actor:"角色",camera:"机位",prop:"布景"}[type]);
     let index = 1;
     while (names.has(created.name)) created.name = stem + " " + ++index;
     editStage(s => {
@@ -280,7 +317,27 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
       if (type !== "camera") return next;
       return timeline ? cutCamera(next, created.id, frame) : { ...next, cameraId: created.id };
     });
-    setMarkers([]); setSelected(created.id); setView("director"); setFeedback(""); setLibrary(false);
+    setMarkers([]); setSelected(created.id); setView("director"); setFeedback(""); setLibrary("");
+  }
+  async function importModel(file, type) {
+    if (locked.current) return;
+    if (base.objects.length >= 64) { setModelError("场景最多支持 64 个对象"); return; }
+    locked.current = true; setBusy(true); setModelError("");
+    let parsed;
+    try {
+      if (file.size > stageModelLimit) throw Error("单个模型文件最大 24 MB");
+      parsed = await parseStageModel(await file.arrayBuffer(),file.name);
+      const ext = file.name.slice(file.name.lastIndexOf("."));
+      const name = file.name.slice(0,-ext.length).slice(0,140) + ext;
+      const asset = await api("/projects/"+encodeURIComponent(board.id)+"/stage-models?"+new URLSearchParams({name}),"POST",file);
+      if (viewport.current) { viewport.current.registerModel(asset,parsed); parsed = null; }
+      await refresh();
+      add(type,undefined,asset);
+    } catch (err) { setModelError(err.message); }
+    finally {
+      if (parsed) disposeStageModel(parsed);
+      locked.current = false; setBusy(false);
+    }
   }
   function remove() {
     if (!item || (item.type === "camera" && cameras.length <= 1)) return;
@@ -299,6 +356,7 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
       const current = timeline ? sampleStage(base, frameRef.current) : base;
       const shot = current.objects.find(o => o.id === current.cameraId);
       viewport.current.update(current, selected, view, sceneTool, background?.url);
+      await viewport.current.prepareModels(current);
       const subjects = compose ? viewport.current.subjectsInFrame() : [];
       const blob = await viewport.current.capture();
       if (compose) {
@@ -354,7 +412,11 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
         <div className="ds-background"><details className="ds-scene-settings"><summary><Settings2 size={15}/>场景开关</summary>
           {Object.entries(stageSwitches).map(([id,[label]]) => <label key={id}>{label}<input role="switch" type="checkbox" checked={switchOn(base,id)}
             onChange={()=>editStage(s=>({...s,settings:{...s.settings,[id]:!switchOn(s,id)}}),label)}/></label>)}
-        </details><button className="ds-model-open" onClick={openLibrary}><Box size={15}/>布景模型库</button><h3>环境</h3>
+        </details><div className="ds-library-links">
+          <button className="ds-model-open" onClick={() => openLibrary()}><Box size={15}/>布景模型库</button>
+          <button className="ds-model-open" onClick={() => openLibrary("weapon")}><Swords size={15}/>兵器库</button>
+          <button className="ds-model-open" onClick={() => openLibrary("import")}><Upload size={15}/>导入模型</button>
+        </div><h3>环境</h3>
           {sources.length > 0 && <Select aria-label="场景背景" value={stage.backgroundId || ""} onValueChange={id =>
             editStage(s => ({ ...s, backgroundId: id, backgroundMode: "flat" }))}>
             <option value="">棚拍背景</option>
@@ -389,14 +451,15 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
       </main>
       <aside className="ds-inspector">
         <header><h3><SlidersHorizontal size={15} />对象属性</h3><Tool label="收起属性" icon={X} className="ds-mobile" onClick={() => setPanel("")} /></header>
-        {item?.type === "actor" && <div className="ds-inspector-tabs" role="group" aria-label="角色编辑">
+        {item?.type === "actor" && !item.modelAssetId && <div className="ds-inspector-tabs" role="group" aria-label="角色编辑">
           <button aria-pressed={inspectorTab==="properties"} onClick={()=>setInspectorTab("properties")}>属性</button>
           <button aria-pressed={inspectorTab==="actions"} onClick={()=>{setPlaying(false);setInspectorTab("actions");}}>动作库</button></div>}
         {item?.locked && <p className="ds-lock-note"><LockKeyhole size={13}/>对象已锁定<button onClick={()=>flipObject(item.id,"locked")}>解锁</button></p>}
-        {item?.type === "actor" && inspectorTab==="actions" ? <fieldset className="ds-edit-shell" disabled={item.locked}>
+        {item?.type === "actor" && !item.modelAssetId && inspectorTab==="actions" ? <fieldset className="ds-edit-shell" disabled={item.locked}>
           <StageActions key={item.id} actor={item} frame={frame} timeline={timeline} viewport={viewport} busy={!ready || playing || busy || exportOpen || walkMode || item.locked || item.hidden} patch={(fields,group)=>patch(item.id,fields,group)}/>
         </fieldset> : item && <fieldset className="ds-edit-shell" disabled={item.locked}><div className="ds-properties" key={item.id}>
           <label>名称<input aria-label="对象名称" value={item.name} maxLength={80} onFocus={()=>{nameEdit.current=Symbol();}} onBlur={()=>{nameEdit.current=null;}} onChange={e => patch(item.id, { name: e.target.value })} /></label>
+          {item.type === "camera" && <CameraLens item={item} change={fields => patch(item.id,fields)}/>}
           {item.type === "camera" && <CameraMotion stage={base} frame={frame} apply={applyMove}
               lastMove={lastMove?.id === selected && item.keys?.some(k => k.frame === lastMove.end) ? lastMove : null}
               preview={() => { seek(lastMove.start); previewEnd.current = lastMove.end; setView("camera"); setPlaying(true); }}
@@ -404,9 +467,9 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
           <Axes item={item} field="position" label="位置" apply={f => patch(item.id, f)} />
           <Axes item={item} field="rotation" label="旋转角度" apply={f => patch(item.id, f)} />
           {item.type === "prop" ? <>
-            <label>几何形状<Select aria-label="布景形状" value={item.shape} onValueChange={shape => patch(item.id,{shape,size:[...propCatalog[shape].size]})}>{Object.entries(stageShapes).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</Select></label>
-            <Axes field="size" label="尺寸" item={item} apply={f => patch(item.id,f)} />
-            <label>布景颜色<input aria-label="布景颜色" type="color" value={item.color} onChange={e => patch(item.id,{color:e.target.value})}/></label>
+            {!item.modelAssetId && <label>几何形状<Select aria-label="布景形状" value={item.shape} onValueChange={shape => patch(item.id,{shape,size:[...propCatalog[shape].size]})}>{Object.entries(stageShapes).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</Select></label>}
+            <Axes field="size" label={item.modelAssetId ? "尺寸倍率" : "尺寸"} item={item} apply={f => patch(item.id,f)} />
+            {!item.modelAssetId && <label>布景颜色<input aria-label="布景颜色" type="color" value={item.color} onChange={e => patch(item.id,{color:e.target.value})}/></label>}
           </> : item.type === "actor" ? <>
             <div className="ds-field">机位构图<div className="ds-shot-sizes" role="group" aria-label="角色景别">
               {[["full","全身"],["medium","中景"],["close","近景"]].map(([size,label]) =>
@@ -416,14 +479,25 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
               <Select aria-label="角色参考图" value={item.referenceAssetId || ""} onValueChange={referenceAssetId => patch(item.id,{referenceAssetId})}>
                 <option value="">未绑定</option>{sources.map(a => <option key={a.id} value={a.id}>{images.find(image => image.id === a.id)?.title || a.name}</option>)}
               </Select></div></label>
-            <label>姿势<Select aria-label="角色姿势" value={item.pose} onValueChange={pose => patch(item.id,{pose,joints:{}})}>
-              {Object.entries(stagePoses).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</Select></label>
+            {!item.modelAssetId && <>
+              <label>体型<Select aria-label="角色体型" value={item.body ?? "standard"} onValueChange={body => patch(item.id,{body})}>
+                {Object.entries(castProfiles).map(([id,p]) => <option key={id} value={id}>{p.name}</option>)}</Select></label>
+              <label>姿势<Select aria-label="角色姿势" value={item.pose} onValueChange={pose => patch(item.id,{pose,joints:{}})}>
+                {Object.entries(stagePoses).map(([id,label]) => <option key={id} value={id}>{label}</option>)}</Select></label>
+              <div className="ds-inline">{[["left","左手道具"],["right","右手道具"]].map(([hand,label]) =>
+                <label key={hand}>{label}<Select aria-label={label} value={item.equipment?.[hand] || ""}
+                  onValueChange={id => patch(item.id,{equipment:{...item.equipment,[hand]:id}})}>
+                  <option value="">空手</option>{Object.entries(weaponCatalog).map(([id,prop]) =>
+                    <option key={id} value={id}>{prop.name}</option>)}</Select></label>)}</div>
+            </>}
             <div className="ds-inline"><div className="ds-field">比例<NumberField label="角色比例" prefix="×" value={item.scale} min={0.1} max={6} step={0.05} change={scale => patch(item.id, { scale })} /></div>
-            <label>角色颜色<input aria-label="角色颜色" type="color" value={item.color} onChange={e => patch(item.id, { color: e.target.value })} /></label></div>
-          </> : <><div className="ds-field">垂直视角<NumberField label="机位视角角度" prefix="°" value={item.fov} min={15} max={100} step={1} change={fov => patch(item.id, { fov })} /></div>
+            {!item.modelAssetId && <label>角色颜色<input aria-label="角色颜色" type="color" value={item.color} onChange={e => patch(item.id, { color: e.target.value })} /></label>}</div>
+          </> : <>
             <button className="ds-align" disabled={!ready || !stage.objects.some(o => o.type === "actor")} onClick={() => frameActors("full",stage.objects.filter(o => o.type === "actor").map(o => o.id),item.id)}><Camera size={15}/>全体角色同框</button>
             <button className="ds-align" disabled={!ready || view !== "director"} onClick={() => patch(item.id, viewport.current.cameraFromDirector())}><Crosshair size={15} />机位对齐导演视角</button>
           </>}
+          {item.modelAssetId && <ImportedAnimation asset={assets.find(a => a.id === item.modelAssetId)} clip={item.modelClip}
+            change={modelClip => patch(item.id,{modelClip})}/>}
           <button className="ds-remove" disabled={item.type === "camera" && cameras.length === 1} onClick={remove}><Trash2 size={14} />移除{{actor:"角色",prop:"布景",camera:"机位"}[item.type]}</button>
         </div></fieldset>}
       </aside>
@@ -449,16 +523,23 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
     {exportOpen && <StageExport stage={base} targets={board.nodes.filter(n => n.data.kind === "video")} viewport={viewport} flush={flush}
       save={(blob,target,receipt) => captureVideo(node.id,blob,target,receipt)} close={() => setExportOpen(false)}/>}
     {formation && <StageFormation max={Math.min(24,64-base.objects.length)} close={() => setFormation(false)}
-      apply={(pattern,count,spacing) => {
+      apply={(pattern,count,spacing,cast) => {
         try {
           const origin = item?.type === "actor" ? item.position : [0,0,0];
-          editStage(s => addFormation(s,pattern,count,spacing,origin),"布置群演");
+          editStage(s => addFormation(s,pattern,count,spacing,origin,cast),"布置群演");
           setWalkMode(false); setView("director"); setFormation(false); setFeedback("已添加 "+count+" 名群演");
         } catch (e) { setFormation(false); setError(e.message); }
       }}/>}
     {composition && <StageComposition take={composition} assets={assets} close={() => setComposition(null)}
       save={plan => captureFrame(node.id,composition.name,composition.blob,plan,composition.receipt)}/>}
-    {library && <StageModels close={() => setLibrary(false)} add={shape => add("prop",shape)}/>}
+    {library && <StageModels mode={library} close={() => setLibrary("")}
+      assets={assets.filter(a => a.kind === "model")} importFile={importModel} importing={busy} error={modelError}
+      actor={item?.type === "actor" && !item.locked && !item.modelAssetId ? item : null}
+      add={(value,placement) => {
+        if (library === "import") add(placement,undefined,value);
+        else if (placement) { patch(item.id,{equipment:{...item.equipment,[placement]:value}}); setLibrary(""); }
+        else add("prop",value);
+      }}/>}
     {vision && <StageVision images={images} nodeId={node.id} projectId={board.id} flush={flush} append={!untouched} apply={apply} close={() => setVision(false)} />}
   </dialog>, document.body);
 }

@@ -145,6 +145,8 @@ export async function validateBoard(board) {
       throw fail("节点内容或镜头时长无效");
     if (d.kind === "stage" && (!validStage(d.stage) || d.stage.referenceIds?.some(id => assets.get(id)?.kind !== "image") ||
         d.stage.objects.some(o => o.referenceAssetId && assets.get(o.referenceAssetId)?.kind !== "image") ||
+        d.stage.objects.some(o => o.modelAssetId && (assets.get(o.modelAssetId)?.kind !== "model" ||
+          (o.modelClip != null && o.modelClip >= (assets.get(o.modelAssetId).model?.clips?.length || 0)))) ||
         (d.stage.backgroundId && assets.get(d.stage.backgroundId)?.kind !== "image")))
       throw fail("导演台的场景、机位或背景图无效");
     for (const kind of ["image", "video", "audio"]) {

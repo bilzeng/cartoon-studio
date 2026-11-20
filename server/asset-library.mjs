@@ -14,7 +14,10 @@ export function assetBindings(board) {
     add(id + "/guide", data.guideAssetId);
     add(id + "/video-restore", data.videoRestoreSource?.assetId);
     if (data.kind === "stage") {
-      for (const actor of data.stage?.objects || []) add(id + "/cast/" + actor.id, actor.referenceAssetId);
+      for (const object of data.stage?.objects || []) {
+        add(id + "/cast/" + object.id, object.referenceAssetId);
+        add(id + "/model/" + object.id, object.modelAssetId);
+      }
       add(id + "/panorama", data.stage?.backgroundId);
       for (const ref of data.stage?.referenceIds || []) add(id + "/stage-ref/" + ref,ref);
     }

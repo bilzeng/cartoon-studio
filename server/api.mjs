@@ -1,4 +1,5 @@
 import { isCharacterCard } from "../shared/character-card.js";
+import { inspectStageModel, stageModelLimit } from "../shared/stage-model.js";
 import { jobTimes } from "../shared/job-timing.js";
 import { registerDirectorScene } from "./director-scene.mjs";
 import { registerOptimizer } from "./prompt-optimizer.mjs";
@@ -227,7 +228,7 @@ export function studioApi() {
   });
   api.get("/assets/library", async (_req, res) => {
     const [assets, projects, history, prefs] = await Promise.all([allAssets(), listBoardFiles(), jobs(), settings()]);
-    res.json(assetCatalog(assets, projects, history, prefs.assetFavorites, prefs.assetTagEdits));
+    res.json(assetCatalog(assets.filter(a => a.kind !== "model"), projects, history, prefs.assetFavorites, prefs.assetTagEdits));
   });
   function tagList(values = []) {
     if (!Array.isArray(values) || values.some(t => typeof t !== "string" || !t.trim()))
@@ -292,6 +293,15 @@ export function studioApi() {
       res.status(asset.duplicate ? 200 : 201).json(asset);
     },
   );
+  api.post("/projects/:id/stage-models", express.raw({type:"application/octet-stream",limit:stageModelLimit}), async (req,res) => {
+    if (!Buffer.isBuffer(req.body)) throw fail("请选择模型文件");
+    const name = String(req.query.name || "").slice(0,150);
+    let model;
+    try { model = inspectStageModel(req.body,name); }
+    catch (error) { throw fail(error.message); }
+    const asset = await storeAsset(req.body,model.format,"model",name,{projectId:req.params.id,model});
+    res.status(asset.duplicate ? 200 : 201).json(asset);
+  });
   api.get("/pose-swap/gallery/:role", async (req, res) => {
     res.json(await poseGallery(req.params.role));
   });

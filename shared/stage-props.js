@@ -15,4 +15,17 @@ export const propCatalog = {
   cylinder: { name:"圆柱", group:"基础几何", size:[1,1,1], color:"#91a3a6" },
   sphere:   { name:"球体", group:"基础几何", size:[1,1,1], color:"#b0937a" },
 };
+export const weaponCatalog = {
+  straightSword: { name: "古风长剑", size: [.24, 1.06, .10], color: "#b7d1df" },
+  curvedBlade: { name: "弧刃长刀", size: [.32, 1.12, .11], color: "#d4b580" },
+  stageStaff: { name: "长棍", size: [.07, 1.65, .07], color: "#bd8b62" },
+  stageSpear: { name: "长枪", size: [.26, 1.85, .12], color: "#abb9c1" },
+  stageHalberd: { name: "月牙戟", size: [.42, 1.9, .13], color: "#9bbac5" },
+  moonShield: { name: "圆盾", size: [.61, .61, .14], color: "#c39a68" },
+  propDagger: { name: "短刃", size: [.14, .38, .06], color: "#acccd1" },
+  fantasyHammer: { name: "奇幻战锤", size: [.38, .88, .19], color: "#8899bd" },
+};
+for (const [id, weapon] of Object.entries(weaponCatalog)) {
+  propCatalog[id] = { ...weapon, group: "兵器道具" };
+}
 export const stageShapes = Object.fromEntries(Object.entries(propCatalog).map(([id,p]) => [id,p.name]));

@@ -2,6 +2,7 @@ import { stageColors, stageFrames, stageObject, stagePoses } from "./director-st
 import { ratios } from "./series.js";
 import { makeNode } from "./studio.js";
 import { addCanvasNode, addCanvasReferences } from "./canvas.js";
+import { castProfiles, crowdProfile } from "./stage-cast.js";
 
 export const formations = { row: "单排", rows: "交错排列", circle: "围成一圈" };
 
@@ -20,9 +21,10 @@ export function formationPoints(pattern, count, spacing) {
   });
 }
 
-export function addFormation(stage, pattern, count, spacing, origin) {
+export function addFormation(stage, pattern, count, spacing, origin, cast = "mixed") {
   if (!Object.hasOwn(formations,pattern) || !Number.isInteger(count) || count < 2 || count > 24 ||
-      stage.objects.length + count > 64 || !Number.isFinite(spacing) || spacing < .6 || spacing > 4)
+      stage.objects.length + count > 64 || !Number.isFinite(spacing) || spacing < .6 || spacing > 4 ||
+      (cast !== "mixed" && !Object.hasOwn(castProfiles, cast)))
     throw Error("请检查群演人数、间距和剩余对象数量");
   const names = new Set(stage.objects.map(o => o.name));
   let serial = 1;
@@ -30,7 +32,8 @@ export function addFormation(stage, pattern, count, spacing, origin) {
     const position = [origin[0]+x, origin[1], origin[2]+z];
     if (position.some(v => Math.abs(v)>100)) throw Error("队形超出场景边界，请缩小间距或调整中心位置");
     while (names.has("群演 "+serial)) serial++;
-    return {...stageObject("actor"), name:"群演 "+serial++, position, rotation:[0,yaw,0],color:stageColors[index%stageColors.length]};
+    return {...stageObject("actor"), name:"群演 "+serial++, position, rotation:[0,yaw,0],
+      body: crowdProfile(cast, index), color: stageColors[index % stageColors.length]};
   });
   return {...stage, objects:[...stage.objects,...actors]};
 }
@@ -50,7 +53,8 @@ export function compositionPlan(stage, subjects, assets, kind) {
     const actor = byActor.get(id);
     if (actor?.type !== "actor") continue;
     const ref = mention(actor.referenceAssetId);
-    lines.push(actor.name+"（人偶 "+actor.color+"，画面横向 "+x+"%、纵向 "+y+"%，"+stagePoses[actor.pose]+"）"+
+    const body = castProfiles[actor.body]?.name || castProfiles.standard.name;
+    lines.push(actor.name+"（"+body+"体型，人偶 "+actor.color+"，画面横向 "+x+"%、纵向 "+y+"%，"+stagePoses[actor.pose]+"）"+
       (ref ? "采用 "+ref+" 的人物外貌与服装。" : "按此处的人物姿态和比例塑造。"));
   }
   const background = mention(stage.backgroundId);

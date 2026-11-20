@@ -4,6 +4,8 @@ import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { figure, cameraMarker } from "./figure";
 import { propMesh, disposeMeshes as release } from "./props";
 import { stageFrames } from "../../shared/director-stage";
+import { createDepthOfField } from "./depth-of-field";
+import { disposeStageModel, parseStageModel, placeStageModel } from "./imported-models";
 
 import { switchOn } from "../../shared/stage-actions.js";
 
@@ -67,6 +69,44 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
   const director = new T.PerspectiveCamera(36, 1, 0.04, 300);
   director.rotation.order = "YXZ";
   const shot = new T.PerspectiveCamera(34, 1, 0.04, 300);
+  const depthOfField = createDepthOfField();
+  let lens;
+  const modelAssets = new Map(), models = new Map();
+  function registerModel(asset, model) {
+    modelAssets.set(asset.id,asset);
+    if (models.has(asset.id)) { disposeStageModel(model); return; }
+    models.set(asset.id,{model,pending:Promise.resolve(model)});
+  }
+  function modelFor(id) {
+    if (models.has(id)) return models.get(id);
+    const asset = modelAssets.get(id);
+    if (!asset) return;
+    const entry = {};
+    entry.pending = fetch(asset.url).then(response => {
+      if (!response.ok) throw Error("无法读取模型文件");
+      return response.arrayBuffer();
+    }).then(bytes => parseStageModel(bytes,asset.name)).then(model => {
+      if (disposed) { disposeStageModel(model); return; }
+      entry.model = model;
+      if (stage) update(stage,selected,mode,tool,bgUrl);
+      return model;
+    }).catch(error => {
+      entry.error = Error(asset.name+"： "+error.message);
+      if (!disposed) report(entry.error.message);
+    });
+    models.set(id,entry);
+    return entry;
+  }
+  function prepareModels(next = stage) {
+    return Promise.all(next.objects.filter(o => o.modelAssetId && !o.hidden).map(async o => {
+      const entry = modelFor(o.modelAssetId);
+      if (!await entry?.pending) throw entry?.error || Error("找不到模型文件："+o.name);
+    }));
+  }
+  function releaseObject(mesh) {
+    mesh.removeModel?.();
+    release(mesh);
+  }
   shot.rotation.order = "YXZ";
   const orbit = new OrbitControls(director, surface);
   orbit.minDistance = 0.5; orbit.maxDistance = 120;
@@ -100,8 +140,15 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
       }
       if (label.textContent !== actor.name) label.textContent = actor.name;
       const mesh = objects.get(actor.id);
-      mesh.getObjectByName("head").getWorldPosition(projected);
-      projected.y += .39 * actor.scale;
+      const head = mesh.getObjectByName("head");
+      if (head) {
+        head.getWorldPosition(projected);
+        projected.y += .39 * actor.scale;
+      } else {
+        const bounds = new T.Box3().setFromObject(mesh);
+        bounds.getCenter(projected);
+        projected.y = bounds.max.y + .14;
+      }
       projected.project(director);
       const x = (projected.x+1)*w/2, y = (1-projected.y)*h/2;
       const behindMonitor = inset && x + viewportBounds.left > inset.left && x + viewportBounds.left < inset.right &&
@@ -177,7 +224,7 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
       renderer.setScissorTest(true);
       renderer.setScissor(x, y, width, height);
       renderer.setViewport(x, y, width, height);
-      renderer.render(world, shot);
+      depthOfField.render(renderer,world,shot,lens);
       renderer.setScissorTest(false);
     } else {
       director.aspect = w / h;
@@ -191,7 +238,7 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
         renderer.setScissor(x,y,inset.width,inset.height);
         renderer.setViewport(x,y,inset.width,inset.height);
         showHelpers(false); cropBackground(shot.aspect);
-        renderer.render(world,shot);
+        depthOfField.render(renderer,world,shot,lens);
         showHelpers(true);
         renderer.setScissorTest(false);
         renderer.setViewport(0,0,w,h);
@@ -263,32 +310,38 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
     helper.visible = enable && !!gizmo.object;
     for (const item of stage.objects) if (item.type === "camera") objects.get(item.id).visible = enable && !item.hidden;
   }
-  function update(next, active, view, action, background) {
+  function update(next, active, view, action, background, assets) {
     stage = next; selected = active; mode = view; tool = action;
+    if (assets) for (const asset of assets) if (asset.kind === "model") modelAssets.set(asset.id,asset);
     const keys = new Set(stage.objects.map(o => o.id));
     for (const [id, mesh] of objects) if (!keys.has(id)) {
       if (gizmo.object === mesh) gizmo.detach();
-      world.remove(mesh); release(mesh); objects.delete(id); labels.get(id)?.remove(); labels.delete(id);
+      world.remove(mesh); releaseObject(mesh); objects.delete(id); labels.get(id)?.remove(); labels.delete(id);
     }
     for (const item of stage.objects) {
       let mesh = objects.get(item.id);
-      const signature = item.type + (item.shape || "") + (item.pose || "") + (item.color || "");
+      const model = item.modelAssetId && modelFor(item.modelAssetId)?.model;
+      const signature = model ? [item.type,item.modelAssetId,item.modelClip].join(":") :
+        [item.type,item.shape,item.pose,item.color,item.body,item.equipment?.left,item.equipment?.right].join(":");
       if (mesh?.userData.signature !== signature) {
         if (mesh) {
           if (gizmo.object === mesh) gizmo.detach();
-          world.remove(mesh); release(mesh);
+          world.remove(mesh); releaseObject(mesh);
         }
-        mesh = item.type === "actor" ? figure(item.color, item.pose) : item.type === "prop" ? propMesh(item) : cameraMarker();
+        mesh = model ? placeStageModel(model,item) : item.type === "actor" ?
+          figure(item.color,item.pose,item.body,item.equipment) : item.type === "prop" ? propMesh(item) : cameraMarker();
         mesh.userData = { id: item.id, signature };
         objects.set(item.id, mesh); world.add(mesh);
       }
       mesh.visible = !item.hidden;
-      if (item.type === "actor") mesh.setGait(item.gait,item.actionPhase,item.joints);
+      mesh.setGait?.(item.gait,item.actionPhase,item.joints);
+      mesh.setModelTime?.(item.modelTime ?? 0);
       mesh.position.fromArray(item.position);
       mesh.rotation.set(...item.rotation.map(rad), "YXZ");
       if (item.type === "prop") mesh.scale.fromArray(item.size);
       else mesh.scale.setScalar(item.scale || 1);
       if (item.id === stage.cameraId) {
+        lens = item;
         shot.position.copy(mesh.position); shot.rotation.copy(mesh.rotation);
         const [w, h] = stageFrames[stage.ratio];
         shot.aspect = w / h; shot.fov = item.fov; shot.updateProjectionMatrix();
@@ -365,7 +418,7 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
       renderer.setPixelRatio(1); renderer.setSize(w, h, false);
       renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h);
       cropBackground(shot.aspect);
-      renderer.render(world, shot);
+      depthOfField.render(renderer,world,shot,lens);
       return new Promise((resolve, reject) => surface.toBlob(blob => blob ? resolve(blob) : reject(Error("机位截图失败")), "image/png"));
     } finally {
       renderer.setPixelRatio(pixelRatio);
@@ -387,7 +440,7 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
         if (disposed || renderer.getContext().isContextLost()) throw Error("三维视窗已关闭或中断，请重新导出");
         update(next,null,"camera","orbit",original.bgUrl);
         renderer.setScissorTest(false); renderer.setViewport(0,0,w,h); cropBackground(shot.aspect);
-        renderer.render(world,shot);
+        depthOfField.render(renderer,world,shot,lens);
         ctx.drawImage(surface,0,0);
         return ctx.getImageData(0,0,w,h).data;
       },
@@ -403,12 +456,12 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
   function contextLost(e) { e.preventDefault(); report("三维显示已中断，请关闭并重新打开导演台"); }
   surface.addEventListener("webglcontextlost", contextLost);
   return {
-    update, reset, capture, frameSubjects, subjectsInFrame, setRail, frameRail, beginVideo,
+    update, reset, capture, frameSubjects, subjectsInFrame, setRail, frameRail, beginVideo, registerModel, prepareModels,
     previewAction(id, phase) {
       if (exporting || disposed) return;
       const actor = stage?.objects.find(o=>o.id===id && o.type==="actor");
       if (!actor) return;
-      objects.get(id).setGait(phase == null ? actor.gait : null,phase ?? actor.actionPhase,actor.joints);
+      objects.get(id)?.setGait?.(phase == null ? actor.gait : null,phase ?? actor.actionPhase,actor.joints);
       invalidate();
     },
     cameraFromDirector: () => ({ ...readTransform(director), fov: director.fov }),
@@ -417,6 +470,9 @@ export function createViewport(host, { select, selectRailKey, walkPoint, transfo
       surface.removeEventListener("webglcontextlost", contextLost);
       surface.removeEventListener("pointerdown", down, true); surface.removeEventListener("pointerup", up);
       gizmo.detach(); world.remove(helper); gizmo.dispose(); orbit.dispose();
+      for (const mesh of objects.values()) mesh.removeModel?.();
+      for (const {model} of models.values()) if (model) disposeStageModel(model);
+      depthOfField.dispose();
       floor.material = solidFloor; contactShadow.dispose(); release(world); texture?.dispose(); key.shadow.dispose(); renderer.dispose(); renderer.forceContextLoss(); surface.remove(); labelLayer.remove();
     },
   };

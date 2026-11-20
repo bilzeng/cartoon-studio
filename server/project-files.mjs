@@ -6,7 +6,7 @@ import { makeId, shots } from "../shared/studio.js";
 import { assetBindings, mediaFileTags, readMediaFileTags, updatedAssetUsage } from "./asset-library.mjs";
 import { assetFile, atomicWrite, jobFile, mediaDir, projectsDir, readJson, root, withFileLock } from "./files.mjs";
 
-const kinds = { image: "图片", video: "视频", audio: "音频" };
+const kinds = { image: "图片", video: "视频", audio: "音频", model: "三维模型" };
 const boardFile = "画布.json";
 const folders = new Map();
 const builtins = shots.map(([id, name]) => ({
@@ -129,10 +129,10 @@ async function allocateMedia(name, ext, kind, used, items) {
     for (const item of items) if (item.diskFile?.startsWith(group + "/")) names.push(path.basename(item.diskFile));
     used.set(group, new Set(names.map(key)));
   }
-  const stem = name.replace(/\.(?:png|jpe?g|webp|mp4|mov|webm|mp3|wav|flac|ogg|m4[ab])$/i, "");
+  const stem = name.replace(/\.(?:png|jpe?g|webp|mp4|mov|webm|mp3|wav|flac|ogg|m4[ab]|glb|gltf|obj)$/i, "");
   return group + "/" + availableName(safeName(stem), "." + ext, used.get(group));
 }
-export function storeAsset(bytes, ext, kind, name, { projectId, origin = "upload", importTags = [] } = {}) {
+export function storeAsset(bytes, ext, kind, name, { projectId, origin = "upload", importTags = [], model } = {}) {
   const md5 = createHash("md5").update(bytes).digest("hex");
   return locked(async () => {
     const entry = projectId ? await lookup(projectId) : null;
@@ -140,14 +140,14 @@ export function storeAsset(bytes, ext, kind, name, { projectId, origin = "upload
     const items = await readJson(assetFile, []);
     if (origin === "upload") {
       for (const asset of [...items, ...builtins]) {
-        if (asset.md5 === md5 && await exists(assetPath(asset)))
+        if (asset.kind === kind && asset.md5 === md5 && await exists(assetPath(asset)))
           return { ...publicAsset(asset), duplicate: true };
       }
     }
     const id = makeId();
     const a = { id, name, kind, md5, file: id + "." + ext, fileTags: mediaFileTags(kind, bytes), created: new Date().toISOString(),
       diskFile: await allocateMedia(name, ext, kind, new Map(), items), origin, ...(projectId ? { projectId } : {}),
-      ...(importTags.length ? { importTags } : {}) };
+      ...(importTags.length ? { importTags } : {}), ...(model && {model}) };
     await atomicWrite(assetPath(a), bytes);
     let archived;
     try {
