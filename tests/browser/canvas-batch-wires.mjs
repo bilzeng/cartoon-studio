@@ -22,13 +22,13 @@ test("框选素材可从任一选中端口批量接入现有节点或新建下�
   await page.route("**/api/engine", (route) => route.fulfill({
     json: { online: true, videoModels: [
       { id: "single", name: "单张参考", needsImage: true, maxRefs: 1 },
-      { id: "multi", name: "多图参考", workflow: true, maxRefs: 3 },
+      { id: "multi", name: "多图参考", kind: "video", workflow: true, maxRefs: 3, minRefs: 0, fields: [], mediaSlots: { image: 3 } },
     ] },
   }));
 
   const first = makeNode("image", { x: 0, y: 0 }, { title: "海岸", assetId: "coast" });
   const second = makeNode("image", { x: 0, y: 320 }, { title: "人物", assetId: "operator" });
-  const video = makeNode("video", { x: 660, y: 0 }, { title: "合成镜头" });
+  const video = makeNode("video", { x: 660, y: 0 }, { title: "合成镜头", text: "镜头缓慢推进。" });
   const image = makeNode("image", { x: 660, y: 320 }, { title: "合成图片" });
   const request = await page.request.post(base + "api/projects", {
     data: { board: {
@@ -84,8 +84,28 @@ test("框选素材可从任一选中端口批量接入现有节点或新建下�
   assertLinks(wired, video.id);
   const videoData = wired.nodes.find((n) => n.id === video.id).data;
   assert.equal(videoData.videoModel, "multi");
-  assert.equal(videoData.text, "@图1 @图2");
+  assert.equal(videoData.text, video.data.text);
+  assert.deepEqual(videoData.canvasRefIds, []);
   assert.equal(await composer.count(), 0);
+  await tile(video.id).click();
+  const prompt = page.getByRole("textbox", { name: "视频节点提示词" });
+  await prompt.waitFor();
+  assert.equal(await prompt.locator(".picture-token").count(), 0);
+  await button("生成设置").click();
+  const settings = page.getByRole("dialog", { name: "视频生成设置" });
+  await settings.getByText("已选 0 / 3 张").waitFor();
+  await settings.getByRole("button", { name: /^图二 / }).click();
+  await settings.getByText("已选 1 / 3 张").waitFor();
+  await settings.getByRole("button", { name: "完成" }).click();
+  assert.equal(await prompt.locator(".picture-token").count(), 0);
+  const insert = button("插入引用 图一");
+  await insert.locator("..").hover();
+  await insert.click();
+  await prompt.locator('[data-token="@图1"]').waitFor();
+  assert.equal(await prompt.locator(".picture-token").count(), 1);
+  await saved();
+  const selected = (await read()).nodes.find((n) => n.id === video.id).data;
+  assert.deepEqual(selected.canvasRefIds, [videoData.imageRefOrder[1]]);
 
   // Starting at an already-connected source still attaches the remaining selection.
   await selectBoth();
@@ -110,5 +130,7 @@ test("框选素材可从任一选中端口批量接入现有节点或新建下�
   const extra = created.nodes.filter((n) => !board.nodes.some((prior) => prior.id === n.id));
   assert.equal(extra.length, 1);
   assert.equal(extra[0].data.videoModel, "multi");
+  assert.equal(extra[0].data.text, "");
+  assert.deepEqual(extra[0].data.canvasRefIds, []);
   assertLinks(created, extra[0].id);
 });

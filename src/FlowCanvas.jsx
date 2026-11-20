@@ -61,7 +61,7 @@ import {
   removeCanvasNodes,
   validCanvasEndpoints,
 } from "../shared/canvasGroups";
-import { attachVideoInput, replaceVideoSource } from "../shared/video-connections";
+import { attachVideoInputs, replaceVideoSource } from "../shared/video-connections";
 import { imageActionData, imageActionNames, isPanoramaNode, panoramaLineage, legacyPanoramaModelId, panoramaModelId } from "../shared/image-actions";
 import { PanoramaViewer } from "./PanoramaViewer";
 import { existingCompositionReferences, placeComposition } from "../shared/stage-composition";
@@ -1066,7 +1066,9 @@ export function FlowCanvas({
           return linked;
         }
         const next = addCanvasNode(b,n,at?.anchor,at?.side);
-        return at?.anchor && at.side === "source" ? attachVideoInput(next,n.id,at.anchor,assets,engine?.videoModels || []) : next;
+        return at?.anchor && at.side === "source"
+          ? attachVideoInputs(b, next, n.id, assets, engine?.videoModels || [])
+          : next;
       });
     } catch (e) {
       notify(e.message);
@@ -1204,11 +1206,7 @@ export function FlowCanvas({
     if (!added.length) return b;
     if (b.edges.length + added.length > 1000) throw Error("画布连线已达上限");
     const edges = [...b.edges, ...added.map((source) => ({ id: makeId(), source, target }))];
-    // Resolve video models and reference numbers against the full batch.
-    return added.reduce(
-      (next, source) => attachVideoInput(next, target, source, assets, engine?.videoModels || []),
-      { ...b, edges },
-    );
+    return attachVideoInputs(b, { ...b, edges }, target, assets, engine?.videoModels || []);
   }
   function connect(source, target, sources = [source]) {
     if (!connectableSources(sources, target, board.edges, nodeIds, groupMap).length) return;

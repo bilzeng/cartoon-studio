@@ -56,7 +56,7 @@ test("选图制作三视图与全景，正反拖线可在视频卡片或素材�
   await saved();
   const wired = (await read()).nodes.find(n=>n.id===video.id);
   assert.equal(wired.data.videoModel,"i2v");
-  assert.equal(wired.data.text,"@图1");
+  assert.equal(wired.data.text,"");
   await drag(button("镜头 · 添加上游"),tile(other.id));
   await page.waitForFunction(()=>document.querySelectorAll(".react-flow__edge-path").length===2);
   await saved();
@@ -75,7 +75,7 @@ test("选图制作三视图与全景，正反拖线可在视频卡片或素材�
   assert.equal(swapped.edges.length,2);
   const data = swapped.nodes.find(n=>n.id===video.id).data;
   assert.deepEqual(data.imageRefOrder,[replacement.id,other.id]);
-  assert.equal(data.text,"@图1 @图2");
+  assert.equal(data.text,"");
   const submissions = [];
   const job = {id:crypto.randomUUID(),status:"running"};
   await page.route("**/api/projects/*/generate", async route => {

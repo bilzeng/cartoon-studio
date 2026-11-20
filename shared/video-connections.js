@@ -1,43 +1,51 @@
-import { canvasInputs, canvasMediaRefs, imageReferences } from "./canvas.js";
+import { canvasInputs, canvasMediaRefs, imageReferences, resolveWorkflowInputs } from "./canvas.js";
 
-// Keep mention numbers and an author's explicit selection when wiring another reference.
-export function attachVideoInput(board,targetId,sourceId,assets,models) {
-  const node = board.nodes.find(n => n.id === targetId);
-  if (node?.data.kind !== "video" || models.find(m => m.id === node.data.videoModel)?.hasPrompt === false) return board;
-  const inputs = canvasInputs(board,node,assets);
-  const images = imageReferences(inputs,node,assets);
-  const {refs,orders} = canvasMediaRefs(images,inputs,node.data,assets);
-  const incoming = refs.find(ref => ref.id === sourceId);
-  if (!incoming) return board;
-  const kind = incoming.asset.kind;
-  const data = {...node.data,imageRefOrder:images.sourceIds,mediaRefOrder:orders};
-  if (kind === "image") {
-    if (data.canvasRef || data.canvasRefIds) {
-      const prior = data.canvasRefIds || (data.canvasRef && data.canvasRef!=="none" ? [data.canvasRef] : []);
-      data.canvasRefIds = [...new Set([...prior,sourceId])];
-      data.canvasRef = "";
-    }
-  } else if (data.selectedMediaRefs?.[kind]) {
-    data.selectedMediaRefs = {...data.selectedMediaRefs,[kind]:[...new Set([...data.selectedMediaRefs[kind],sourceId])]};
-  }
-  const prefix = {image:"图",video:"视频",audio:"语音"}[kind];
-  const mentioned = new Set(Array.from(data.text.matchAll(new RegExp("@"+prefix+"(\\d+)","gu")),m => Number(m[1])));
-  if (!mentioned.has(incoming.number)) {
-    const manual = kind === "image" ? data.canvasRefIds : data.selectedMediaRefs?.[kind];
-    const use = mentioned.size ? [incoming] : refs.filter(r => r.asset.kind === kind && (!manual || manual.includes(r.id)));
-    const text = [data.text.trimEnd(),...use.map(r => "@"+prefix+r.number)].filter(Boolean).join(" ");
-    if (text.length<=40000) data.text = text;
-  }
+// New links supply candidates and stable mention numbers.
+export function attachVideoInputs(before, board, targetId, assets, models) {
+  const node = board.nodes.find((n) => n.id === targetId);
+  if (node?.data.kind !== "video") return board;
+  let model = models.find((m) => m.id === node.data.videoModel);
+  if (model?.hasPrompt === false) return board;
+  const inputs = canvasInputs(board, node, assets);
+  const images = imageReferences(inputs, node, assets);
+  const { refs, orders } = canvasMediaRefs(images, inputs, node.data, assets);
+  const priorInputs = canvasInputs(before, node, assets);
+  const priorIds = new Set(priorInputs.upstream.map((n) => n.id));
+  const added = new Set(refs.filter((r) => r.id !== "upload" && !priorIds.has(r.id)).map((r) => r.asset.kind));
+  if (!added.size) return board;
+  const data = { ...node.data, imageRefOrder: images.sourceIds, mediaRefOrder: orders };
   if (!data.videoModel) {
     const counts = {image:0,video:0,audio:0};
     for (const ref of refs) counts[ref.asset.kind]++;
-    const model = models.find(m => m.hasPrompt!==false && !m.framePair && (m.minRefs || 0)<=counts.image &&
+    model = models.find(m => m.hasPrompt!==false && !m.framePair && (m.minRefs || 0)<=counts.image &&
       !(m.dependencies || []).some(f => !f.choices.includes(f.value)) &&
       Object.entries(counts).every(([k,n]) => {
         const slots = k==="image" ? (m.maxRefs ?? Number(!!m.needsImage)) : (m.mediaSlots?.[k] || 0);
         return slots>=n && (k==="image" || !slots || !!m.optionalMedia?.[k] || slots===n);
       }));
     if (model) data.videoModel=model.id;
+  }
+  if (model?.workflow) {
+    const pickImages = added.has("image") && model.maxRefs > 1 && !model.minRefs &&
+      !data.canvasRef && !Array.isArray(data.canvasRefIds);
+    const pickMedia = ["video", "audio"].filter((kind) =>
+      added.has(kind) && model.optionalMedia?.[kind] && !Array.isArray(data.selectedMediaRefs?.[kind]),
+    );
+    if (pickImages || pickMedia.length) {
+      // Freeze the previous implicit selection so newly connected optional refs start unchecked.
+      const prior = resolveWorkflowInputs(priorInputs, node, assets, model);
+      if (pickImages) {
+        const mentioned = new Set([...data.text.matchAll(/@图(\d+)/gu)].map((m) => Number(m[1])));
+        data.canvasRefIds = prior.selected.filter((r) => !mentioned.has(r.number)).map((r) => r.id);
+      }
+      for (const kind of pickMedia) {
+        const { selected, tokens } = prior.mediaReferences[kind];
+        data.selectedMediaRefs = {
+          ...data.selectedMediaRefs,
+          [kind]: selected.filter((r) => !tokens.includes(r.number)).map((r) => r.id),
+        };
+      }
+    }
   }
   return {...board,nodes:board.nodes.map(n => n.id === targetId ? {...n,data} : n)};
 }
