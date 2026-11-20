@@ -8,10 +8,11 @@ import { fileURLToPath } from "node:url";
 import lockfile from "proper-lockfile";
 
 export const root = fileURLToPath(new URL("../", import.meta.url));
-if (!process.env.NODE_TEST_CONTEXT && existsSync(path.join(root, ".env")))
-  loadEnvFile(path.join(root, ".env"));
+const installRoot = process.env.STUDIO_INSTALL_ROOT || root;
+if (!process.env.NODE_TEST_CONTEXT && existsSync(path.join(installRoot, ".env")))
+  loadEnvFile(path.join(installRoot, ".env"));
 function workspaceData() {
-  if (!process.env.NODE_TEST_CONTEXT) return path.join(root, "data");
+  if (!process.env.NODE_TEST_CONTEXT) return path.join(installRoot, "data");
   if (process.env.STUDIO_DATA_DIR) return process.env.STUDIO_DATA_DIR;
   const temporary = mkdtempSync(path.join(tmpdir(), "studio-test-data-"));
   process.once("exit", () => rmSync(temporary, { recursive: true, force: true }));

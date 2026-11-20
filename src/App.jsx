@@ -26,6 +26,7 @@ import { api } from "./client";
 import { Guide, Mark, Media, Modal, SampleCard, icons } from "./ui";
 import { Library, Jobs } from "./library";
 import { Editor } from "./editor";
+import { StudioUpdate } from "./StudioUpdate";
 
 function CanvasLaunch({ onClick }) {
   function followPointer(event) {
@@ -269,6 +270,7 @@ export function App() {
                 使用指南
               </button>
             </nav>
+            <StudioUpdate notify={notify} />
             <button
               className="workspace"
               onClick={() => setDialog("workspace")}
