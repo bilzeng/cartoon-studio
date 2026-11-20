@@ -9,8 +9,9 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { makeId } from "../shared/studio.js";
-import { assetPath, fail, storeAsset } from "./storage.mjs";
+import { allAssets, assetPath, fail, storeAsset } from "./storage.mjs";
 import { h3VideoReference, restoreVideoAudio } from "./render.mjs";
+import { isVideoUpscale } from "../shared/generation-size.js";
 
 async function request(route, options = {}, allowMissing = false, timeout = 20000, stage = "连接 ComfyUI") {
   const base = currentUrl();
@@ -277,9 +278,17 @@ export async function videoConfig(split) {
       : null)
   );
 }
-async function execute(graph, seed, progress, findOutput, trackSteps = false) {
+const retryResult = (message,status = 503) => Object.assign(fail(message,status), {code:"RESULT_UNAVAILABLE"});
+function pickOutput(outputs, type, output) {
+  return (output ? [outputs[output] || {}] : Object.values(outputs)).flatMap(o =>
+    type === "audio" ? o.audio || [] : type === "image" ? o.images || [] :
+      [...(o.videos || []),...(o.gifs || []),...(o.images || [])],
+  ).find(f => typeof f?.filename === "string" && f.type !== "temp" &&
+    (type !== "video" || /\.(mp4|mov|webm)$/i.test(f.filename)));
+}
+async function execute(graph, seed, progress, type, output, sourceAudioId) {
   const clientId = makeId();
-  const watch = trackSteps ? watchExecution(currentUrl(), currentToken(), clientId, graph) : null;
+  const watch = type === "video" ? watchExecution(currentUrl(), currentToken(), clientId, graph) : null;
   try {
     await watch?.ready;
     const send = async () => (
@@ -293,15 +302,20 @@ async function execute(graph, seed, progress, findOutput, trackSteps = false) {
     watch?.bind(ticket.prompt_id);
     await progress(
       "已送入 ComfyUI 队列 · Seed " + seed + " · " + ticket.prompt_id,
-      { promptId: ticket.prompt_id, phase: "queued", workloadKey: workloadKey(currentUrl(), graph) },
+      { promptId: ticket.prompt_id, phase: "queued", workloadKey: workloadKey(currentUrl(), graph),
+        recovery: { seed, output, sourceAudioId } },
     );
-    return await collectResult(ticket.prompt_id, watch, progress, findOutput);
+    return await collectResult(ticket.prompt_id, watch, progress, type, output);
   } finally {
     watch?.close();
   }
 }
 
-async function collectResult(promptId, watch, progress, findOutput) {
+async function historyItem(promptId, signal) {
+  const path = "/history/" + encodeURIComponent(promptId);
+  return (await (await request(path,{signal},false,20000,"查询生成进度")).json())[promptId];
+}
+async function collectResult(promptId, watch, progress, type, outputNode) {
   let lastStep, lastStream, executionObservedAt, lastQueuePosition;
   const deadline = Date.now() + 60 * 60 * 1000;
   let historyFailures = 0;
@@ -320,17 +334,15 @@ async function collectResult(promptId, watch, progress, findOutput) {
       lastStep = step;
       lastStream = stream;
     }
-    let history;
+    let item;
     try {
-      history = await (
-        await request("/history/" + encodeURIComponent(promptId), { signal: progress.signal }, false, 20000, "查询生成进度")
-      ).json();
+      item = await historyItem(promptId,progress.signal);
       historyFailures = 0;
     } catch (error) {
+      progress.signal?.throwIfAborted();
       if (error.status === 503 && ++historyFailures < 4) continue;
-      throw fail("查询生成进度失败 · " + promptId + " · " + error.message, 502);
+      throw retryResult("查询生成进度失败 · " + promptId + " · " + error.message,502);
     }
-    const item = history[promptId];
     if (!item) {
       if (Date.now() >= nextQueueCheck) {
         nextQueueCheck = Date.now() + 6000;
@@ -351,52 +363,97 @@ async function collectResult(promptId, watch, progress, findOutput) {
       }
       continue;
     }
-    const executionMs = executionDuration(item.status?.messages);
-    const execution = executionMs === null ? {} : { executionMs };
-    if (item.status?.messages?.some(([type]) => type === "execution_interrupted"))
-      throw Object.assign(fail("已取消生成", 409), { code: "GENERATION_CANCELLED" });
-    if (item.status?.status_str === "error") {
-      const error = item.status?.messages?.find(
-        ([type]) => type === "execution_error",
-      )?.[1];
-      if (executionMs !== null) await progress("ComfyUI 执行失败", execution);
-      throw fail(
-        "模型执行失败 · " +
-          [error?.node_type, error?.exception_message?.slice(0, 420)]
-            .filter(Boolean)
-            .join(" ") +
-          " · " +
-          promptId,
-      );
-    }
-    const output = findOutput(item.outputs || {});
-    if (!output) {
-      if (item.status?.completed) throw fail("工作流没有输出支持的文件");
-      continue;
-    }
-    const query = new URLSearchParams({
-      filename: output.filename,
-      subfolder: output.subfolder || "",
-      type: output.type || "output",
-    });
-    await progress("正在下载生成结果 · " + promptId, { phase: "downloading", ...execution });
-    const response = await request("/view?" + query, {}, false, 600000, "下载生成结果");
-    const chunks = [];
-    let size = 0;
-    try {
-      for await (const chunk of response.body) {
-        size += chunk.byteLength;
-        if (size > 128 * 1024 * 1024) throw fail("生成文件超过 128 MB");
-        chunks.push(chunk);
-      }
-    } catch (e) {
-      if (e.status) throw e;
-      throw fail("下载生成结果时连接中断 · " + promptId, 503);
-    }
-    return Buffer.concat(chunks);
+    const bytes = await completedResult(item,promptId,progress,type,outputNode);
+    if (bytes) return bytes;
   }
-  throw fail("等待超过 60 分钟，请在 ComfyUI 历史中检查结果");
+  throw retryResult("等待超过 60 分钟，可重连原任务或取回结果");
 }
+async function completedResult(item, promptId, progress, type, outputNode) {
+  const executionMs = executionDuration(item.status?.messages);
+  const execution = executionMs === null ? {} : { executionMs };
+  if (item.status?.messages?.some(([type]) => type === "execution_interrupted"))
+    throw Object.assign(fail("已取消生成", 409), { code: "GENERATION_CANCELLED" });
+  if (item.status?.status_str === "error") {
+    const error = item.status?.messages?.find(
+      ([type]) => type === "execution_error",
+    )?.[1];
+    if (executionMs !== null) await progress("ComfyUI 执行失败", execution);
+    throw fail(
+      "模型执行失败 · " +
+        [error?.node_type, error?.exception_message?.slice(0, 420)]
+          .filter(Boolean)
+          .join(" ") +
+        " · " +
+        promptId,
+    );
+  }
+  const output = pickOutput(item.outputs || {},type,outputNode);
+  if (!output) {
+    if (item.status?.completed) throw fail("工作流没有输出支持的文件");
+    return null;
+  }
+  const query = new URLSearchParams({
+    filename: output.filename,
+    subfolder: output.subfolder || "",
+    type: output.type || "output",
+  });
+  await progress("正在下载生成结果 · " + promptId, { phase: "downloading", ...execution });
+  const chunks = [];
+  let size = 0;
+  try {
+    const response = await request("/view?" + query, {signal:progress.signal}, false, 600000, "下载生成结果");
+    for await (const chunk of response.body) {
+      size += chunk.byteLength;
+      if (size > 128 * 1024 * 1024) throw fail("生成文件超过 128 MB");
+      chunks.push(chunk);
+    }
+  } catch (e) {
+    progress.signal?.throwIfAborted();
+    if (size > 128 * 1024 * 1024) throw e;
+    throw retryResult("已找到生成结果，下载暂未完成 · " + promptId);
+  }
+  return Buffer.concat(chunks);
+}
+export async function recoverComfyResult(job, progress) {
+  const {promptId,type,project:projectId,recovery} = job;
+  let item;
+  try { item = await historyItem(promptId,progress.signal); }
+  catch (error) {
+    progress.signal?.throwIfAborted();
+    throw retryResult("暂时无法查询原 ComfyUI 任务 · " + error.message);
+  }
+  let bytes = item && await completedResult(item,promptId,progress,type,recovery?.output);
+  if (!bytes) {
+    const queue = await request("/queue",{signal:progress.signal},false,5000,"重连原任务")
+      .then(response => response.json()).catch(error => {
+        progress.signal?.throwIfAborted();
+        throw retryResult(error.message);
+      });
+    const position = queue.queue_pending?.findIndex(row => row[1] === promptId) ?? -1;
+    if (queue.queue_running?.some(row => row[1] === promptId))
+      await progress("ComfyUI 正在执行", {phase:"executing",executionObservedAt:job.executionObservedAt || new Date().toISOString()});
+    else if (position >= 0)
+      await progress("已送入 ComfyUI 队列", {phase:"queued",remoteQueuePosition:position+1});
+    else {
+      // A prompt can leave the queue between the history and queue requests.
+      item = await historyItem(promptId,progress.signal).catch(() => null);
+      bytes = item && await completedResult(item,promptId,progress,type,recovery?.output);
+      if (!bytes) throw retryResult("原 ComfyUI 暂未返回该任务或可下载结果，可稍后再查");
+    }
+    bytes ||= await collectResult(promptId,null,progress,type,recovery?.output);
+  }
+  const sourceAudioId = recovery?.sourceAudioId ?? (isVideoUpscale(job.modelId) && job.inputAssetIds?.[0]);
+  const sourceAudioAsset = sourceAudioId && (await allAssets()).find(a => a.id === sourceAudioId && a.kind === "video");
+  if (sourceAudioId && !sourceAudioAsset) throw retryResult("原视频素材暂不可用，暂时无法恢复原声");
+  const assetTitle = job.title || "恢复的生成结果";
+  const options = {projectId,seed:recovery?.seed,assetTitle,sourceAudioAsset};
+  return {image:saveImageResult,video:saveVideoResult,audio:saveAudioResult}[type](bytes,options,progress);
+}
+
+function generatedFile(projectId, progress) {
+  return {projectId,origin:"generated",generationJobId:progress.generationJobId};
+}
+const versionName = (title,seed) => seed == null ? title : title + " · " + seed;
 export async function generateImage(
   {
     projectId,
@@ -474,11 +531,10 @@ export async function generateImage(
           inputs: { images: ["6", 0], filename_prefix: "CartoonStudio" },
         },
       };
-  const bytes = await execute(graph, seed, progress, (o) =>
-    (config?.output ? [o[config.output] || {}] : Object.values(o))
-      .flatMap((n) => n.images || [])
-      .find((f) => f.type !== "temp"),
-  );
+  const bytes = await execute(graph,seed,progress,"image",config?.output);
+  return saveImageResult(bytes,{projectId,assetTitle,seed},progress);
+}
+function saveImageResult(bytes,{projectId,assetTitle,seed},progress) {
   let extension;
   if (bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")))
     extension = "png";
@@ -489,7 +545,7 @@ export async function generateImage(
   )
     extension = "webp";
   else throw fail("图片工作流应返回 PNG、JPEG 或 WebP");
-  return storeAsset(bytes, extension, "image", assetTitle + " · " + seed, { projectId, origin: "generated" });
+  return storeAsset(bytes,extension,"image",versionName(assetTitle,seed),generatedFile(projectId,progress));
 }
 async function bindGraph(
   template,
@@ -597,16 +653,10 @@ export async function generateVideo(
     progress,
     prepareVideoRefs: config.prepareVideoRefs,
   });
-  const bytes = await execute(graph, seed, progress, (outputs) =>
-    (config.output ? [outputs[config.output] || {}] : Object.values(outputs))
-      .flatMap((o) => [
-        ...(o.videos || []),
-        ...(o.gifs || []),
-        ...(o.images || []),
-      ])
-      .find((o) => o.type !== "temp" && /\.(mp4|mov|webm)$/i.test(o.filename)),
-    true,
-  );
+  const bytes = await execute(graph,seed,progress,"video",config.output,sourceAudioAsset?.id);
+  return saveVideoResult(bytes,{projectId,assetTitle,seed,sourceAudioAsset},progress);
+}
+async function saveVideoResult(bytes,{projectId,assetTitle,seed,sourceAudioAsset},progress) {
   const ext =
     bytes.toString("ascii", 4, 8) === "ftyp"
       ? bytes.toString("ascii", 8, 12) === "qt  "
@@ -618,7 +668,7 @@ export async function generateVideo(
         : null;
   if (!ext) throw fail("视频工作流需要输出 MP4、MOV 或 WebM");
   const master = sourceAudioAsset ? await restoreVideoAudio(bytes, assetPath(sourceAudioAsset)) : bytes;
-  return storeAsset(master, ext, "video", assetTitle + " · " + seed + "." + ext, { projectId, origin: "generated" });
+  return storeAsset(master,ext,"video",versionName(assetTitle,seed)+"."+ext,generatedFile(projectId,progress));
 }
 
 export async function generateAudio(
@@ -626,9 +676,10 @@ export async function generateAudio(
   progress,
 ) {
   const graph = await bindGraph(config.graph, { media, prompt, seed, progress });
-  const bytes = await execute(graph, seed, progress, (outputs) =>
-    (outputs[config.output]?.audio || []).find((f) => f.type !== "temp"),
-  );
+  const bytes = await execute(graph,seed,progress,"audio",config.output);
+  return saveAudioResult(bytes,{projectId,assetTitle,seed},progress);
+}
+function saveAudioResult(bytes,{projectId,assetTitle,seed},progress) {
   const header = bytes.toString("ascii", 0, 4);
   const ext =
     header === "fLaC"
@@ -644,5 +695,5 @@ export async function generateAudio(
               ? "m4a"
               : "";
   if (!ext) throw fail("音频工作流没有返回可播放的音频文件");
-  return storeAsset(bytes, ext, "audio", assetTitle + " · " + seed, { projectId, origin: "generated" });
+  return storeAsset(bytes,ext,"audio",versionName(assetTitle,seed),generatedFile(projectId,progress));
 }

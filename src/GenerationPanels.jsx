@@ -1,4 +1,5 @@
 import { JobTiming } from "./JobTiming";
+import { RecoverGeneration } from "./RecoverGeneration";
 import { Select } from "./Select";
 import { outputSize, sizeError } from "../shared/generation-size";
 import React, { useId, useLayoutEffect, useRef, useState } from "react";
@@ -624,7 +625,7 @@ function jobTime(job) {
   return jobDate.format(new Date(job.created));
 }
 
-export function GenerationHistory({ jobs, assets, data, projectId, close, apply }) {
+export function GenerationHistory({ jobs, assets, data, projectId, close, apply, reconnect, onError }) {
   const [selection, select] = useState(jobs[0]?.id);
   const [compare, setCompare] = useState(false);
   const job = jobs.find((j) => j.id === selection) || jobs[0];
@@ -700,7 +701,7 @@ export function GenerationHistory({ jobs, assets, data, projectId, close, apply 
                     ? (job.phase === "waiting" ? "排队中" : "正在生成")
                     : job.status === "cancelled" ? "已取消生成"
                     : job.status === "failed"
-                      ? "本次生成失败"
+                      ? (job.canRecover ? "可重连原任务" : "本次生成失败")
                       : "预览素材暂不可用"}
                 </strong>
                 {["running", "failed"].includes(job.status) && <p>{job.detail}</p>}
@@ -708,6 +709,7 @@ export function GenerationHistory({ jobs, assets, data, projectId, close, apply 
             )}
           </div>
           <JobTiming job={job} />
+          {job.canRecover && <RecoverGeneration className="outline" jobId={job.id} onRecovered={reconnect} onError={onError}/>}
           {preview && job.status === "done" && <AssetFileActions key={preview.id} asset={preview} projectId={projectId} />}
         </div>
         <div className="history-list">
@@ -723,7 +725,7 @@ export function GenerationHistory({ jobs, assets, data, projectId, close, apply 
                   ? (j.phase === "waiting" ? "排队中" : "生成中")
                   : j.status === "cancelled" ? "已取消"
                   : j.status === "failed"
-                    ? "生成失败"
+                    ? (j.canRecover ? "可重连" : "生成失败")
                     : i === 0
                       ? "最新生成"
                       : "历史版本";

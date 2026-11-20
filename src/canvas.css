@@ -119,7 +119,7 @@ html:has(.flow-workspace) {
   left: 8px;
   padding: 4px 7px;
   border-radius: 4px;
-  background: #252a2c;
+  background: #1b252bc9;
   color: #e6ebeb;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -154,6 +154,9 @@ html:has(.flow-workspace) {
   to {
     transform: translate(9%, -3%) rotate(8deg);
   }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile-generation::before { animation: none; }
 }
 .flow-tile-face p {
   color: #d0d0d0;

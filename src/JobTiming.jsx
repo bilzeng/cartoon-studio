@@ -47,7 +47,7 @@ export function JobTiming({ job, showSteps = false, statusLabel, syncFailed = fa
   }, [running]);
 
   if (!job) return null;
-  const progress = showSteps && running && job.phase !== "waiting" ? stepProgress(job) : null;
+  const progress = showSteps && running && ["uploading","executing","downloading"].includes(job.phase) ? stepProgress(job) : null;
   const { elapsedMs, estimatedRemainingMs } = jobTimes(job);
   const parts = [];
   if (elapsedMs !== null)

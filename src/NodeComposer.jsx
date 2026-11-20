@@ -2,6 +2,7 @@ import { legacyPanoramaModelId, panoramaModelId } from "../shared/image-actions"
 import { JobTiming } from "./JobTiming";
 import { queueLabel } from "../shared/job-timing";
 import { CancelGeneration } from "./CancelGeneration";
+import { RecoverGeneration } from "./RecoverGeneration";
 import { PromptOptimizer } from "./PromptOptimizer";
 import { PromptPresetLibrary } from "./PromptPresetLibrary";
 import { optimizationContext, currentOptimization } from "../shared/prompt-optimizer";
@@ -408,7 +409,14 @@ export function NodeComposer({
     latest = jobs[0];
   const runningLabel = /^正在(重试)?上传/.test(latest?.detail)
     ? latest.detail
-    : /^(已送入 ComfyUI 队列|ComfyUI 正在执行|正在下载生成结果)/.exec(latest?.detail)?.[0] || "正在生成";
+    : /^(已送入 ComfyUI 队列|ComfyUI 正在执行|正在下载生成结果|正在查询原 ComfyUI 任务)/.exec(latest?.detail)?.[0] || "正在生成";
+  function reconnected(job) {
+    showError("");
+    setJobs(rows => rows.map(row => row.id === job.id ? job : row));
+    if (job.status === "running" && latest?.id === job.id && !data.pendingCanvasJob)
+      set({pendingCanvasJob:job.id,pendingMediaSource:data.assetId || ""});
+    poll(n => n + 1);
+  }
   const guide = assets.find((a) => a.id === inputs.reference);
   const mark = data.imageMark?.assetId === guide?.id ? data.imageMark : null;
   const result = assets.find((a) => a.id === latest?.assetId);
@@ -756,6 +764,8 @@ export function NodeComposer({
         <GenerationHistory
           {...{ jobs, assets, data }}
           projectId={board.id}
+          reconnect={reconnected}
+          onError={notify}
           close={() => setPanel("")}
           apply={(assetId) => {
             set({ assetId });
@@ -904,6 +914,7 @@ export function NodeComposer({
                     ? "画布正在使用此版"
                     : "新版本已生成"} />
           </div>
+          {latest.canRecover && <RecoverGeneration jobId={latest.id} onRecovered={reconnected} onError={showError}/>}
           <button onClick={() => menu("versions")} aria-haspopup="dialog">
             <History size={14} />
             生成记录 <b>{jobs.length}</b>

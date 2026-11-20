@@ -266,9 +266,8 @@ function Tile({ id, data, width, selected }) {
             </button>}
           </div>
         )}
-        {generating && (waitingLabel
-          ? <span className="tile-queue-position">{waitingLabel}</span>
-          : <div className="tile-generation" aria-hidden="true" />)}
+        {generating && <div className="tile-generation" aria-hidden="true" />}
+        {generating && waitingLabel && <span className="tile-queue-position">{waitingLabel}</span>}
       </div>
       {["target", "source"].map((side) => (
         <CanvasPort key={side} id={id} side={side} title={data.title} />

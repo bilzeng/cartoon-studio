@@ -64,7 +64,7 @@ import {
   storeAsset,
   validateBoard,
 } from "./storage.mjs";
-import { enqueue, cancelJob, scheduleJobs } from "./generation-queue.mjs";
+import { enqueue, cancelJob, canRecoverJob, recoverJob, scheduleJobs } from "./generation-queue.mjs";
 import { exportPlan } from "./render.mjs";
 import {
   customWorkflow,
@@ -581,11 +581,16 @@ export function studioApi() {
       res.json({ online: false, checkpoints: [], message: e.message });
     }
   });
-  function publicJob({ owner, snapshot, workloadKey, inputAssetIds, payload, environment, ...job }) {
-    return { ...job, ...jobTimes(job) };
+  function publicJob(row) {
+    const {owner,snapshot,workloadKey,inputAssetIds,payload,environment,recovery,reconnectable,recovering,...job} = row;
+    return { ...job, ...jobTimes(job), ...(canRecoverJob(row) && {canRecover:true}) };
   }
   api.post("/jobs/:id/cancel", async (req, res) => {
     res.json(publicJob(await cancelJob(req.params.id)));
+  });
+  api.post("/jobs/:id/recover", async (req,res) => {
+    const job = await recoverJob(req.params.id);
+    res.status(job.status === "done" ? 200 : 202).json(publicJob(job));
   });
   api.get("/jobs", async (req, res) => {
     const ids = typeof req.query.ids === "string" ? new Set(req.query.ids.split(",")) : null;

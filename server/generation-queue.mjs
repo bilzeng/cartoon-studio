@@ -2,7 +2,7 @@ import { hostname } from "node:os";
 import { makeId } from "../shared/studio.js";
 import { currentUrl, withEnvironment } from "./environments.mjs";
 import { generationControl } from "./generation-control.mjs";
-import { cancelComfyPrompt, generateAudio, generateImage, generateVideo } from "./comfy.mjs";
+import { cancelComfyPrompt, generateAudio, generateImage, generateVideo, recoverComfyResult } from "./comfy.mjs";
 import { renderFilm } from "./render.mjs";
 import { executionEstimate } from "./generation-timing.mjs";
 import { jobs, changeJobs, fail, now } from "./storage.mjs";
@@ -59,16 +59,7 @@ async function dispatch() {
       Object.assign(job, { phase: "preparing", owner: { pid: process.pid, host: hostname() } });
     }
   });
-  for (const job of claimed) {
-    const control = job.type === "export" ? null : generationControl(
-      id => withEnvironment(job.environment, () => cancelComfyPrompt(id)),
-    );
-    if (control) active.set(job.id, control);
-    run(job, control).catch(err => console.error("生成记录写入失败", err.message)).finally(() => {
-      active.delete(job.id);
-      scheduleJobs();
-    });
-  }
+  for (const job of claimed) start(job);
   if (updated.some(waiting)) scheduleJobs(2000);
 }
 
@@ -82,21 +73,60 @@ function update(id, status, detail, assetId, timing) {
   });
 }
 
-async function run(job, control) {
+function start(job, recovering = false) {
+  const control = job.type === "export" ? null : generationControl(
+    id => withEnvironment(job.environment, () => cancelComfyPrompt(id)),
+  );
+  if (control) {
+    if (recovering) control.submit(() => Promise.resolve({prompt_id:job.promptId}));
+    active.set(job.id,control);
+  }
+  run(job,control,recovering).catch(err => console.error("生成记录写入失败",err.message)).finally(() => {
+    if (active.get(job.id) === control) active.delete(job.id);
+    scheduleJobs();
+  });
+}
+async function run(job, control, recovering) {
   const progress = (detail, timing) => update(job.id, "running", detail, null, timing);
+  progress.generationJobId = job.id;
   if (control) Object.assign(progress, { signal: control.signal, submit: control.submit });
   try {
     const generate = { image: generateImage, audio: generateAudio, video: generateVideo, export: renderFilm }[job.type];
-    const asset = await withEnvironment(job.environment, () => generate(job.payload, progress, job.project));
-    await update(job.id, "done", job.detail, asset.id);
+    const asset = await withEnvironment(job.environment, () => recovering ?
+      recoverComfyResult(job,progress) : generate(job.payload, progress, job.project));
+    await update(job.id, "done", recovering ? "已从 ComfyUI 取回生成结果" : job.detail, asset.id,
+      {recovered:recovering || undefined, reconnectable:undefined});
   } catch (err) {
     await control?.cancelling?.catch(() => {});
     if (control?.signal.aborted || err.code === "GENERATION_CANCELLED")
       return update(job.id, "cancelled", "已取消生成", null);
     const detail = err.code === "ENOENT" ? "找不到 FFmpeg，请安装并加入 PATH"
       : err.status ? err.message : "处理失败，请检查素材是否可播放以及 FFmpeg 编码器是否可用";
-    await update(job.id, "failed", detail, null);
+    await update(job.id, "failed", detail, null, {reconnectable:err.code === "RESULT_UNAVAILABLE"});
   }
+}
+
+export function canRecoverJob(job) {
+  return job.status === "failed" && ["image","audio","video"].includes(job.type) &&
+    !!job.promptId && !!job.environment &&
+    (job.reconnectable === true || /^(等待超过|服务已重启|查询生成进度失败|下载生成结果)/.test(job.detail));
+}
+export async function recoverJob(id) {
+  let claimed;
+  const rows = await changeJobs(items => {
+    const job = items.find(j => j.id === id);
+    if (!job) throw fail("任务不存在",404);
+    if (job.status === "done" || job.status === "running" && job.recovering) return;
+    if (!canRecoverJob(job)) throw fail("此任务暂无可重连的 ComfyUI 记录",409);
+    delete job.finishedAt;
+    delete job.step;
+    delete job.progressStream;
+    Object.assign(job,{status:"running",phase:"recovering",recovering:true,
+      detail:"正在查询原 ComfyUI 任务",owner:{pid:process.pid,host:hostname()}});
+    claimed = {...job};
+  });
+  if (claimed) start(claimed,true);
+  return rows.find(job => job.id === id);
 }
 
 export async function cancelJob(id) {

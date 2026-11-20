@@ -132,12 +132,16 @@ async function allocateMedia(name, ext, kind, used, items) {
   const stem = name.replace(/\.(?:png|jpe?g|webp|mp4|mov|webm|mp3|wav|flac|ogg|m4[ab]|glb|gltf|obj)$/i, "");
   return group + "/" + availableName(safeName(stem), "." + ext, used.get(group));
 }
-export function storeAsset(bytes, ext, kind, name, { projectId, origin = "upload", importTags = [], model } = {}) {
+export function storeAsset(bytes, ext, kind, name, { projectId, origin = "upload", importTags = [], model, generationJobId } = {}) {
   const md5 = createHash("md5").update(bytes).digest("hex");
   return locked(async () => {
     const entry = projectId ? await lookup(projectId) : null;
     if (projectId && !entry) throw missing();
     const items = await readJson(assetFile, []);
+    if (generationJobId) {
+      const saved = items.find(a => a.generationJobId === generationJobId && a.projectId === projectId);
+      if (saved && await exists(assetPath(saved))) return publicAsset(saved);
+    }
     if (origin === "upload") {
       for (const asset of [...items, ...builtins]) {
         if (asset.kind === kind && asset.md5 === md5 && await exists(assetPath(asset)))
@@ -147,7 +151,7 @@ export function storeAsset(bytes, ext, kind, name, { projectId, origin = "upload
     const id = makeId();
     const a = { id, name, kind, md5, file: id + "." + ext, fileTags: mediaFileTags(kind, bytes), created: new Date().toISOString(),
       diskFile: await allocateMedia(name, ext, kind, new Map(), items), origin, ...(projectId ? { projectId } : {}),
-      ...(importTags.length ? { importTags } : {}), ...(model && {model}) };
+      ...(importTags.length ? { importTags } : {}), ...(model && {model}), ...(generationJobId && {generationJobId}) };
     await atomicWrite(assetPath(a), bytes);
     let archived;
     try {
