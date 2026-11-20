@@ -42,7 +42,7 @@ test("选图制作三视图与全景，正反拖线可在视频卡片或素材�
     await page.mouse.move(a.x+a.width/2,a.y+a.height/2);
     await page.mouse.down();
     await page.mouse.move(b.x+b.width/2,b.y+b.height/2,{steps:22});
-    await page.locator(".video-wire-target").waitFor();
+    await page.locator('[data-wire-target="video"]').waitFor();
     assert.equal(await composer.count(),0,"拉线时收起节点编辑器");
     await page.mouse.up();
     assert.equal(await composer.count(),0,"连好后等到点选节点才打开编辑器");

@@ -95,6 +95,12 @@ const motion = () => ({
 const clamp = (n, min, max) => Math.max(min, Math.min(n, max));
 const acceptsImageDrop = (data) => data?.kind === "image" && data.imageModel !== poseSwapModelId;
 const isFileDrag = (event) => event.dataTransfer?.types.includes("Files");
+function connectableSources(sources, target, edges, nodes, groups) {
+  const linked = new Set(edges.filter((e) => e.target === target).map((e) => e.source));
+  return [...new Set(sources)].filter(
+    (source) => !linked.has(source) && validCanvasEndpoints(nodes, groups, source, target),
+  );
+}
 function imageDropTarget(element) {
   if (element.closest("dialog, [role='dialog']")) return null;
   const node = element.closest("[data-image-drop-target]");
@@ -796,8 +802,7 @@ export function FlowCanvas({
       y,
       anchor = "",
       side = "",
-      point,
-      entry = side === "target" ? Position.Right : Position.Left,
+      { point, entry = side === "target" ? Position.Right : Position.Left, sources } = {},
     ) => {
       const r = wrap.current.getBoundingClientRect();
       const width = Math.min(218, box.w - 16),
@@ -815,6 +820,7 @@ export function FlowCanvas({
         anchor,
         side,
         entry,
+        sources,
         point: point || screenToFlowPosition({ x, y }),
       });
       setEdge("");
@@ -844,8 +850,10 @@ export function FlowCanvas({
         menuY,
         id,
         side,
-        screenToFlowPosition({ x: x + (side === "source" ? 94 : -94), y }),
-        toRight ? Position.Left : Position.Right,
+        {
+          point: screenToFlowPosition({ x: x + (side === "source" ? 94 : -94), y }),
+          entry: toRight ? Position.Left : Position.Right,
+        },
       );
     },
     [openMenu, screenToFlowPosition],
@@ -1051,6 +1059,12 @@ export function FlowCanvas({
     });
     try {
       edit(b => {
+        if (at?.sources) {
+          const next = addCanvasNode(b, n);
+          const linked = addConnections(next, at.sources, n.id);
+          if (linked === next) throw Error("连接起点已移除");
+          return linked;
+        }
         const next = addCanvasNode(b,n,at?.anchor,at?.side);
         return at?.anchor && at.side === "source" ? attachVideoInput(next,n.id,at.anchor,assets,engine?.videoModels || []) : next;
       });
@@ -1183,18 +1197,37 @@ export function FlowCanvas({
       poseSwapRefs: { person: source.id },
     });
   }
-  function connect(source, target) {
-    if (
-      !validCanvasEndpoints(nodeIds, groupMap, source, target) ||
-      board.edges.some((e) => e.source === source && e.target === target)
-    )
-      return;
-    if (board.edges.length >= 1000) {
-      notify("画布连线已达上限");
-      return;
+  function addConnections(b, sources, target) {
+    const added = connectableSources(
+      sources, target, b.edges, new Set(b.nodes.map((n) => n.id)), canvasGroups(b.nodes),
+    );
+    if (!added.length) return b;
+    if (b.edges.length + added.length > 1000) throw Error("画布连线已达上限");
+    const edges = [...b.edges, ...added.map((source) => ({ id: makeId(), source, target }))];
+    // Resolve video models and reference numbers against the full batch.
+    return added.reduce(
+      (next, source) => attachVideoInput(next, target, source, assets, engine?.videoModels || []),
+      { ...b, edges },
+    );
+  }
+  function connect(source, target, sources = [source]) {
+    if (!connectableSources(sources, target, board.edges, nodeIds, groupMap).length) return;
+    try {
+      edit((b) => addConnections(b, sources, target));
+      setMenu(null);
+    } catch (e) {
+      notify(e.message);
     }
-    edit(b => attachVideoInput({...b,edges:[...b.edges,{id:makeId(),source,target}]},target,source,assets,engine?.videoModels || []));
-    setMenu(null);
+  }
+  function wireSources(source) {
+    const start = wireStart.current;
+    return !reconnecting.current && start?.nodeId === source && start.sources
+      ? start.sources
+      : [source];
+  }
+  function canConnectWire(source, target) {
+    return canReplaceSource(source) &&
+      connectableSources(wireSources(source), target, board.edges, nodeIds, groupMap).length > 0;
   }
   function canReplaceSource(source) {
     const prior = reconnecting.current;
@@ -1202,7 +1235,7 @@ export function FlowCanvas({
     const kind = id => assetsById.get(board.nodes.find(n => n.id === id)?.data.assetId)?.kind;
     return !!kind(source) && kind(source) === kind(prior.source);
   }
-  function videoBodyDrop(point) {
+  function wireBodyDrop(point) {
     const start = wireStart.current;
     if (!start || !point) return null;
     const hit = document.elementFromPoint(point.clientX,point.clientY);
@@ -1211,15 +1244,15 @@ export function FlowCanvas({
     const id = tile.dataset.id;
     const source = start.handleType === "source" ? start.nodeId : id;
     const target = start.handleType === "source" ? id : start.nodeId;
-    if (!canReplaceSource(source) || board.nodes.find(n => n.id === target)?.data.kind !== "video" ||
-        !validCanvasEndpoints(nodeIds,groupMap,source,target) || board.edges.some(e => e.source === source && e.target === target)) return null;
+    if (!start.sources && board.nodes.find((n) => n.id === target)?.data.kind !== "video") return null;
+    if (!canConnectWire(source, target)) return null;
     return {source,target,tile};
   }
   function markWireTarget(tile) {
     if (wireHover.current === tile) return;
-    wireHover.current?.classList.remove("video-wire-target");
+    if (wireHover.current) delete wireHover.current.dataset.wireTarget;
     wireHover.current = tile;
-    tile?.classList.add("video-wire-target");
+    if (tile) tile.dataset.wireTarget = wireStart.current?.sources ? "batch" : "video";
   }
   function unlink(id) {
     edit((b) => ({ ...b, edges: b.edges.filter((e) => e.id !== id) }));
@@ -1236,10 +1269,10 @@ export function FlowCanvas({
       r.top - 266,
       "",
       "",
-      screenToFlowPosition({
+      { point: screenToFlowPosition({
         x: wrap.current.getBoundingClientRect().left + box.w / 2,
         y: wrap.current.getBoundingClientRect().top + box.h * 0.4,
-      }),
+      }) },
     );
   }
   const width = Math.min(658, box.w - 16);
@@ -1293,7 +1326,7 @@ export function FlowCanvas({
         (dragPositions.size ? " moving-node" : "")
       }
       data-image-drop-active={imageDrop === "canvas" || undefined}
-      onPointerMoveCapture={e => { if (wireStart.current) markWireTarget(videoBodyDrop(e)?.tile || null); }}
+      onPointerMoveCapture={e => { if (wireStart.current) markWireTarget(wireBodyDrop(e)?.tile || null); }}
       onDragOverCapture={dragImages}
       onDragLeaveCapture={leaveImageDrop}
       onDropCapture={dropImages}
@@ -1310,10 +1343,7 @@ export function FlowCanvas({
           edgeTypes={edgeTypes}
           connectionLineComponent={ConnectionPreview}
           connectionRadius={28 / view.zoom}
-          isValidConnection={({ source, target }) =>
-            canReplaceSource(source) && validCanvasEndpoints(nodeIds, groupMap, source, target) &&
-            !board.edges.some((e) => e.source === source && e.target === target)
-          }
+          isValidConnection={({ source, target }) => canConnectWire(source, target)}
           nodeTypes={types}
           fitView={fitOnOpen.current}
           fitViewOptions={fitOptions}
@@ -1374,27 +1404,32 @@ export function FlowCanvas({
             setMenu(null);
             setEdge("");
           }}
-          onConnect={({ source, target }) => connect(source, target)}
+          onConnect={({ source, target }) => connect(source, target, wireSources(source))}
           reconnectRadius={8/view.zoom}
           onReconnectStart={(_,edge) => { reconnecting.current = edge; }}
           onReconnect={(edge,{source}) => edit(b => replaceVideoSource(b,edge.id,source,assets))}
           onReconnectEnd={() => { reconnecting.current = null; }}
           onConnectStart={(_, s) => {
-            wireStart.current = s;
+            const selectedIds = current.current;
+            const sources = !reconnecting.current && s.handleType === "source" &&
+              selectedIds.length > 1 && selectedIds.includes(s.nodeId) ? selectedIds : undefined;
+            wireStart.current = { ...s, sources };
             setMenu(null);
             select("");
           }}
           onConnectEnd={(e, state) => {
             const p = e.changedTouches?.[0] || e;
-            const drop = !state.toHandle && e.type !== "touchcancel" && videoBodyDrop(p);
-            wireStart.current = null; markWireTarget(null);
+            const sources = wireStart.current?.sources;
+            const drop = !state.toHandle && e.type !== "touchcancel" && wireBodyDrop(p);
+            wireStart.current = null;
+            markWireTarget(null);
             if (state.isValid || state.toHandle || !state.fromHandle || e.type === "touchcancel") return;
             if (reconnecting.current) {
               const edgeId = reconnecting.current.id;
               if (drop) edit(b => replaceVideoSource(b,edgeId,drop.source,assets));
               return;
             }
-            if (drop) { connect(drop.source,drop.target); return; }
+            if (drop) { connect(drop.source, drop.target, sources); return; }
             if (
               !document
                 .elementFromPoint(p.clientX, p.clientY)
@@ -1406,6 +1441,7 @@ export function FlowCanvas({
               p.clientY,
               state.fromHandle.nodeId,
               state.fromHandle.type,
+              { sources },
             );
           }}
         >
@@ -1560,7 +1596,7 @@ export function FlowCanvas({
             style={{ left: menu.left, top: menu.top, width: menu.width }}
           >
             <header>
-              {menu.anchor
+              {menu.sources ? "引用所选节点生成" : menu.anchor
                 ? menu.side === "source"
                   ? groupMap.has(menu.anchor)
                     ? "引用资产组生成"

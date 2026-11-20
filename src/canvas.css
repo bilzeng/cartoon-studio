@@ -1228,7 +1228,8 @@ html:has(.flow-workspace) {
 .image-action-strip { position:absolute; z-index:4; transform:translateX(-50%); display:flex; gap:2px; align-items:center; padding:3px; border:1px solid #484c4c; border-radius:8px; background:#222526; box-shadow:0 3px 9px #0003; }
 .image-action-strip button { display:flex; align-items:center; gap:5px; height:27px; padding:0 8px; border:0; border-radius:5px; background:transparent; font:inherit; font-size:12px; color:#d9e2df; white-space:nowrap; cursor:pointer; }
 .image-action-strip button:hover,.image-action-strip button:focus-visible { background:#38413f; color:white; }
-.video-wire-target .flow-tile-face { outline:2px solid #9accc5; outline-offset:2px; }
-.video-wire-target .flow-tile-face::after { content:"松开接入视频节点"; position:absolute; bottom:8px; left:50%; transform:translateX(-50%); border-radius:4px; background:#213c37; color:#e7f5f1; padding:4px 8px; font-size:12px; white-space:nowrap; pointer-events:none; }
+[data-wire-target] .flow-tile-face { outline:2px solid #9accc5; outline-offset:2px; }
+[data-wire-target] .flow-tile-face::after { content:"松开接入视频节点"; position:absolute; bottom:8px; left:50%; transform:translateX(-50%); border-radius:4px; background:#213c37; color:#e7f5f1; padding:4px 8px; font-size:12px; white-space:nowrap; pointer-events:none; }
+[data-wire-target="batch"] .flow-tile-face::after { content:"松开批量连线"; }
 .panorama-mode { margin:6px 1px; font-size:12px; line-height:1.5; color:var(--sub); }
 .flow-workspace .react-flow__edgeupdater-source { fill:#baded9; stroke:#263332; stroke-width:2; cursor:grab; }
