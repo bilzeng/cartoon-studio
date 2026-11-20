@@ -55,6 +55,7 @@ import {
   Maximize2,
 } from "lucide-react";
 import { useCanvasSelection } from "./useCanvasSelection";
+import { usePromptOptimizations } from "./usePromptOptimizations";
 import { AssetPreview, icons, Media, Modal } from "./ui";
 import {
   canvasGroups,
@@ -502,6 +503,7 @@ export function FlowCanvas({
     const inferred = panoramaLineage(legacyRoots, sources);
     return catalog.map(a => a.kind === "image" && !a.panorama && inferred.has(a.id) ? { ...a, panorama: true } : a);
   }, [catalog, board.nodes]);
+  const promptOptimizations = usePromptOptimizations({ board, assets, engine, edit, notify });
   const preview = previewId && assets.find(a => a.id === previewId);
   const [stageId, setStageId] = useState("");
   const stageNode = board.nodes.find(n => n.id === stageId && n.data.kind === "stage");
@@ -1560,6 +1562,7 @@ export function FlowCanvas({
               node,
               assets,
               engine,
+              promptOptimizations,
               update,
               edit,
               link: connect,

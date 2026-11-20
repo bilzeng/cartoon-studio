@@ -4,7 +4,8 @@ import { queueLabel } from "../shared/job-timing";
 import { CancelGeneration } from "./CancelGeneration";
 import { PromptOptimizer } from "./PromptOptimizer";
 import { PromptPresetLibrary } from "./PromptPresetLibrary";
-import { optimizationContext, currentOptimization, optimizedNodeChanges } from "../shared/prompt-optimizer";
+import { optimizationContext, currentOptimization } from "../shared/prompt-optimizer";
+import { canvasModelInputs, nodePromptOptimization } from "./canvasModelInputs";
 import { ModelPicker, missingFiles } from "./ModelPicker";
 import {
   defaultRestoreSize,
@@ -65,12 +66,8 @@ import { canvasMediaRefs, refLabel } from "./canvasReferences";
 
 import { StyleGallery } from "./ImageComposerTools";
 import {
-  canvasInputs,
   addCanvasReferences,
   assignPoseSwapReference,
-  resolveImages,
-  resolveVideoInputs,
-  resolveWorkflowInputs,
   workflowNeeds,
   mediaReferenceError,
   availableStyles,
@@ -105,6 +102,7 @@ export function NodeComposer({
   flush,
   notify,
   onPromptResize,
+  promptOptimizations,
 }) {
   const [previewAsset, setPreviewAsset] = useState(null);
   const [panel, setPanel] = useState(""),
@@ -121,7 +119,8 @@ export function NodeComposer({
   const { data, id } = node,
     kind = data.kind,
     generated = ["image", "video", "audio"].includes(kind);
-  const inputs = canvasInputs(board, node, assets);
+  const modelInputs = canvasModelInputs(board, node, assets, engine);
+  const { inputs, imageModel, videos, audioModels, model, resolved } = modelInputs;
   const incoming = new Map(
     board.edges.filter((e) => e.target === id).map((e) => [e.source, e]),
   );
@@ -131,24 +130,6 @@ export function NodeComposer({
       .filter((g) => incoming.has(g.id))
       .flatMap((g) => g.members.map((n) => n.id)),
   );
-  const imageModel = data.imageModel
-    ? engine?.imageModels?.find((m) => m.id === data.imageModel)
-    : engine?.imageModels?.find((m) => !m.workflow) ||
-      engine?.imageModels?.find((m) => m.id !== poseSwapModelId && !missingFiles(m).length);
-  const videos =
-    engine?.videoModels ||
-    (engine?.video ? [{ ...engine.video, id: "studio:default-video" }] : []);
-  const videoModel = data.videoModel
-    ? videos.find((m) => m.id === data.videoModel)
-    : videos.find((m) => m.id === h3VideoModelId && !missingFiles(m).length) || videos.find((m) => !m.workflow) ||
-      videos.find((m) => m.baseModel && (inputs.reference || !m.needsImage)) ||
-      videos.find((m) => m.id !== h3ContinuationModelId && m.hasPrompt !== false && !missingFiles(m).length);
-  const audioModels = engine?.audioModels || [];
-  const audioModel = data.audioModel
-    ? audioModels.find((m) => m.id === data.audioModel)
-    : audioModels.find((m) => !missingFiles(m).length);
-  const model =
-    kind === "image" ? imageModel : kind === "video" ? videoModel : audioModel;
   const restoring = kind === "image" && isImageRestoreModel(data.imageModel);
   const swapping = kind === "image" && model?.id === poseSwapModelId;
   const card = kind === "image" && isCharacterCard(model?.id);
@@ -161,11 +142,6 @@ export function NodeComposer({
   const preferredRestore = [secondPassRestoreId, relayOriginalRestoreModelId, relayRestoreModelId, restoreModelId]
     .map((id) => engine?.imageModels?.find((m) => m.id === id))
     .find((m) => m && !missingFiles(m).length);
-  const resolved = model?.workflow
-    ? resolveWorkflowInputs(inputs, node, assets, model)
-    : kind === "video"
-      ? resolveVideoInputs(inputs, node, assets, videoModel)
-      : resolveImages(inputs, node, assets, imageModel);
   const promptRefs = canvasMediaRefs(resolved, inputs, data, assets);
   const unsupportedRef = !model?.workflow && mediaReferenceError(data.text);
   const missingStyle = data.imageLoras?.some(
@@ -191,8 +167,8 @@ export function NodeComposer({
     model?.reference ?? model?.needsImage;
   const waitingForRef = !card && !swapping && inputs.awaitingImage && (kind === "image" ? acceptsRef : model?.needsImage);
   const ratio = data.canvasRatio || board.series.ratio;
-  const optimization = generated && model && !restoring && !upscalingVideo && model.hasPrompt !== false
-    ? optimizationContext(data, model, resolved, ratio, { forEditor: true }) : null;
+  const optimization = nodePromptOptimization(board, node, modelInputs);
+  const promptTask = promptOptimizations.states[id];
   const restoredAsset = (restoring || upscalingVideo) && assets.find(a => a.id === data.assetId);
   const canCompare = restoreOriginal(restoredAsset, assets);
   const draftKey = kind + "PromptOptimization";
@@ -551,11 +527,13 @@ export function NodeComposer({
           </button>
         )}
         {optimization && <PromptOptimizer
-          context={optimization} source={data.text}
-          inputError={resolved.error || unsupportedRef || (!data.text.trim() && "请先填写" + kinds[kind] + "描述")}
-          onStart={() => { showError(""); setPanel(""); }}
-          onError={showError} notify={notify}
-          apply={(text) => set(optimizedNodeChanges(data, optimization, resolved, text))}
+          inputError={optimization.inputError} started={promptTask?.started}
+          onStart={(profileId) => {
+            showError("");
+            setPanel("");
+            promptOptimizations.start(id, profileId);
+          }}
+          onCancel={() => promptOptimizations.cancel(id)}
         />}
         {kind === "shot" && (
           <button onClick={() => open("refs")}>
@@ -906,7 +884,7 @@ export function NodeComposer({
       )}
       {adopted && optimization && <small className="opt-applied">{currentOptimization(optimizationContext(data, model, resolved, ratio), adopted)
         ? "本次生成使用优化稿 · " + adopted.modelName : "场景或素材已变化，本次生成使用原文"}</small>}
-      {jobSyncFailed && <small role="status" className="job-timing">暂时无法读取生成状态，正在重试…</small>}
+      {jobSyncFailed && !latest && <small role="status" className="job-timing">暂时无法读取生成状态，正在重试…</small>}
       {generated && latest && (
         <div className="generation-result">
           {latest.status === "running" ? (
@@ -915,7 +893,7 @@ export function NodeComposer({
             <Media asset={result} />
           ) : null}
           <div className="generation-result-info">
-            <JobTiming job={latest} showSteps={kind === "video"}
+            <JobTiming job={latest} showSteps={kind === "video"} syncFailed={jobSyncFailed}
               statusLabel={latest.status === "running"
                 ? queueLabel(latest) || runningLabel
                 : latest.status === "cancelled" ? "已取消生成"
@@ -949,7 +927,7 @@ export function NodeComposer({
             {stale || invalidSize || resolved.error || unsupportedRef}
           </small>
         )}
-      {error && <small role="alert">{error}</small>}
+      {(error || (optimization && promptTask?.error)) && <small role="alert">{error || promptTask.error}</small>}
       <footer className={generated ? "generation-footer" : undefined}>
         {generated ? (
           <>

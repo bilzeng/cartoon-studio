@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   LoaderCircle,
@@ -13,7 +13,6 @@ import { api } from "./client";
 import { Modal } from "./ui";
 import { Select } from "./Select";
 import { durationText } from "../shared/job-timing";
-import { optimizedPromptError } from "../shared/prompt-optimizer";
 import "./prompt-optimizer.css";
 
 const services = {
@@ -436,28 +435,19 @@ export function PromptModelSettings({ close }) {
 
 const profilePreference = "cartoon-studio.prompt-optimizer.profile";
 
-export function PromptOptimizer({ context, source, inputError, apply, onStart, onError, notify }) {
+export function PromptOptimizer({ inputError, started, onStart, onCancel }) {
   const [manage, setManage] = useState(false);
   const [reload, setReload] = useState(0);
   const { profiles, loadError } = useProfiles(reload);
   const [chosen, choose] = useState(() => localStorage.getItem(profilePreference));
   const selected = profiles?.find((p) => p.id === chosen) || profiles?.[0];
-  const request = useRef(null);
-  const [started, setStarted] = useState(null);
-  const [elapsed, setElapsed] = useState(0);
-  const busy = started !== null;
-  const basis = JSON.stringify(context);
-
-  useLayoutEffect(() => {
-    setStarted(null);
-    return () => {
-      request.current?.abort();
-      request.current = null;
-    };
-  }, [basis, source, inputError]);
+  const [now, setNow] = useState(Date.now);
+  const busy = started !== undefined;
+  const elapsed = busy ? Math.max(0, now - started) : 0;
   useEffect(() => {
-    if (started === null) return;
-    const timer = setInterval(() => setElapsed(Date.now() - started), 1000);
+    if (started === undefined) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [started]);
 
@@ -470,41 +460,6 @@ export function PromptOptimizer({ context, source, inputError, apply, onStart, o
     localStorage.setItem(profilePreference, id);
   }
 
-  async function run() {
-    if (!selected || inputError || request.current) return;
-    const controller = new AbortController();
-    request.current = controller;
-    setElapsed(0);
-    setStarted(Date.now());
-    onStart();
-    const timeout = setTimeout(() => {
-      if (request.current !== controller) return;
-      controller.abort();
-      onError("提示词优化等待超时，请检查模型服务后重试。");
-    }, 190000);
-    try {
-      const { text } = await api("/prompt-optimizer/run", "POST", {
-        profileId: selected.id, context,
-      }, controller.signal);
-      if (controller.signal.aborted) return;
-      const issue = optimizedPromptError(text, context);
-      if (issue) onError(issue);
-      else {
-        apply(text.trim());
-        notify("提示词已更新");
-      }
-    } catch (e) {
-      if (!controller.signal.aborted)
-        onError(e instanceof TypeError ? "与工作室的连接中断，请重试优化。" : e.message);
-    } finally {
-      clearTimeout(timeout);
-      if (request.current === controller) {
-        request.current = null;
-        setStarted(null);
-      }
-    }
-  }
-
   if (loadError) return <button onClick={() => setReload((n) => n + 1)} title={loadError}>
     <RefreshCw size={14} /> 重试加载优化模型
   </button>;
@@ -514,12 +469,12 @@ export function PromptOptimizer({ context, source, inputError, apply, onStart, o
       <div className="opt-split" role="group" aria-label="提示词优化">
         <button type="button" disabled={!selected || busy || !!inputError}
           title={inputError || (selected ? "使用 " + selected.name + " · " + selected.model : "请先配置提示词模型")}
-          aria-busy={busy} aria-label={busy ? "优化中…" : undefined} onClick={run}>
+          aria-busy={busy} aria-label={busy ? "优化中…" : undefined} onClick={() => onStart(selected.id)}>
           {busy ? <LoaderCircle size={14} className="generation-spin" /> : <PencilLine size={14} />}
           {busy ? <>优化中 <small className="opt-elapsed">{durationText(elapsed)}</small></> : "优化提示词"}
         </button>
         {busy ? <button type="button" className="opt-cancel" aria-label="取消优化" title="取消优化"
-          onClick={() => request.current?.abort()}><X size={14} /></button>
+          onClick={onCancel}><X size={14} /></button>
           : selected ? <Select
           aria-label={"选择优化模型，当前为 " + selected.name + " · " + selected.model}
           title={selected.name + " · " + selected.model + "，点击切换优化模型"}

@@ -484,7 +484,7 @@
   align-items: center;
   color: #c5cdcd;
   font-size: 12px;
-  margin: 4px 0 8px;
+  margin: 3px 0 6px;
 }
 .generation-result img,
 .generation-result video {
@@ -505,7 +505,7 @@
 .generation-result-info {
   flex: 1;
   display: grid;
-  grid-template-rows: repeat(2, 18px);
+  grid-template-rows: repeat(2, 16px);
   min-width: 0;
 }
 .generation-status-line {
@@ -531,6 +531,10 @@
 .generation-step-count {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+}
+.generation-result-info .job-timing {
+  font-size: 11px;
+  line-height: 16px;
 }
 .video-step-track {
   flex: 0 0 clamp(18px, 12%, 60px);

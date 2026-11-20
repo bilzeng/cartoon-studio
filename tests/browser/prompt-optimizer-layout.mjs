@@ -151,13 +151,35 @@ test("节点内一键替换提示词、选择并记住模型，等待期间的�
   await page.getByRole("alert").filter({ hasText: "服务暂时不可用" }).waitFor();
   assert.equal(await editor.innerText(), first);
   fail = false;
+  const selectNode = (node) => page.locator(`.react-flow__node[data-id="${node.id}"] .flow-tile-face`).click();
+  let completeBackground;
+  hold = new Promise((resolve) => { completeBackground = resolve; });
+  reply = "离开节点期间完成的优化稿。";
+  await optimize.click();
+  const waiting = button("优化中…");
+  await waiting.waitFor();
+  await page.mouse.click(40, 165);
+  await editor.waitFor({ state: "detached" });
+  await selectNode(image);
+  await waiting.waitFor();
+  assert.equal(await editor.innerText(), first);
+  await selectNode(audio);
+  assert.equal(await waiting.count(), 0);
+  const completed = page.waitForResponse(r => r.request().method() === "PUT" &&
+    r.url().endsWith("/projects/" + board.id) &&
+    r.request().postDataJSON().nodes.find(n => n.id === image.id)?.data.text === reply);
+  completeBackground();
+  hold = null;
+  assert.equal((await completed).status(), 200);
+  assert.equal(await editor.innerText(), "远处海浪拍岸，低沉而疏缓。");
+  await selectNode(image);
+  assert.equal(await editor.innerText(), reply);
   await page.emulateMedia({ reducedMotion: "reduce" });
   let release;
   hold = new Promise(resolve => { release = resolve; });
   const started = page.waitForRequest("**/api/prompt-optimizer/run");
   await optimize.click();
   await started;
-  const waiting = button("优化中…");
   assert.ok(await waiting.isDisabled());
   assert.equal(await waiting.locator(".generation-spin").evaluate(el => getComputedStyle(el).animationDuration), "1s");
   await waiting.getByText(/[1-9] 秒/).waitFor();

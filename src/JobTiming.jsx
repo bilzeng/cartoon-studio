@@ -37,7 +37,7 @@ function stepProgress(job) {
   return { stage, value, max, count, freshness };
 }
 
-export function JobTiming({ job, showSteps = false, statusLabel }) {
+export function JobTiming({ job, showSteps = false, statusLabel, syncFailed = false }) {
   const running = job?.status === "running";
   const [, tick] = useState(0);
   useEffect(() => {
@@ -92,9 +92,10 @@ export function JobTiming({ job, showSteps = false, statusLabel }) {
           )}
         </div>
       )}
-      <small className="job-timing" aria-live="off"
+      <small className="job-timing" role={syncFailed ? "status" : undefined}
+        aria-live={syncFailed ? "polite" : "off"}
         title={statusLabel && compactTiming ? compactTiming + "\n" + explanation : explanation}>
-        {compactTiming}
+        {syncFailed ? "暂时无法读取生成状态，正在重试…" : compactTiming}
       </small>
     </>
   );

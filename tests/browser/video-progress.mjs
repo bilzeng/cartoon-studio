@@ -98,15 +98,22 @@ test("从已选成片创建高清修复节点，切换至 4K 并查看生成进�
   const result = page.locator(".generation-result");
   await result.getByText("工作台排队第 2 位", { exact: true }).waitFor();
   const waitingHeight = (await result.boundingBox()).height;
+  const decoding = "视频 VAE · 参考图编码 / 画面解码";
+  const sampling = job.step;
+  job = { ...job, phase: "executing", queuePosition: undefined,
+    step: { stage: decoding, updatedAt: sampling.updatedAt } };
+  const decodingBar = result.getByRole("progressbar", { name: decoding });
+  await decodingBar.waitFor();
+  assert.equal(await decodingBar.getAttribute("aria-valuenow"), null);
+  assert.equal((await result.boundingBox()).height, waitingHeight);
   const stage = "超分采样，生成高清画面并恢复片段细节".repeat(8);
   job = {
-    ...job, phase: "executing", queuePosition: undefined,
-    step: { ...job.step, stage }, progressStream: "offline",
+    ...job, step: { ...sampling, stage }, progressStream: "offline",
   };
   const bar = result.getByRole("progressbar", { name: stage });
   await bar.waitFor();
   assert.equal((await result.boundingBox()).height, waitingHeight);
-  assert.ok(waitingHeight <= 38);
+  assert.ok(waitingHeight <= 32);
   await page.setViewportSize({ width: 390, height: 740 });
   assert.equal((await result.boundingBox()).height, waitingHeight);
   assert.match(await result.locator(".generation-status").getAttribute("title"), /恢复片段细节/u);
