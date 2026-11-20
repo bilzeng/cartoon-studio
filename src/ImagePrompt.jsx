@@ -28,6 +28,28 @@ const externalText = Transaction.remote;
 const maxLength = 40000;
 const minPromptHeight = 24;
 const maxPromptHeight = 420;
+const editorKinds = { 图: "image", 视频: "video", 语音: "audio" };
+const tokenKey = (token) => token.startsWith("<")
+  ? token.toLowerCase().replace(/\s+/g, " ")
+  : token;
+
+function referenceAliases(resolved, enabled) {
+  const aliases = new Map();
+  if (!enabled || resolved.error) return aliases;
+  for (const [name, refs] of [
+    ["picture", resolved.selected],
+    ["video", resolved.mediaReferences?.video?.selected],
+    ["audio", resolved.mediaReferences?.audio?.selected],
+  ]) {
+    refs?.forEach((ref, i) => aliases.set(`<${name} ${i + 1}>`, ref));
+  }
+  return aliases;
+}
+
+function sameReference(a, b) {
+  return b && a.id === b.id && a.number === b.number && a.title === b.title &&
+    a.asset.url === b.asset.url && a.asset.name === b.asset.name;
+}
 
 function thumbnail(kind, url) {
   if (kind === "audio") {
@@ -47,47 +69,51 @@ function thumbnail(kind, url) {
   return media;
 }
 class PictureToken extends WidgetType {
-  constructor(token, ref) {
+  constructor(token, kind, number, url) {
     super();
     this.token = token;
-    const [, prefix, number] = token.match(/^@(图|视频|语音)(\d+)$/u);
-    this.kind = { 图: "image", 视频: "video", 语音: "audio" }[prefix];
-    this.label = refLabel(this.kind, Number(number));
-    this.url = ref?.asset.url;
+    this.kind = kind;
+    this.label = refLabel(kind, number);
+    this.url = url;
   }
   eq(other) {
-    return this.token === other.token && this.url === other.url;
+    return this.token === other.token && this.label === other.label && this.url === other.url;
   }
   toDOM() {
     const chip = document.createElement(this.url ? "button" : "span");
     if (this.url) chip.type = "button";
     chip.className = "picture-token";
     chip.dataset.token = this.token;
-    chip.title = this.label + (this.url ? "" : " · 参考已断开");
+    const label = this.label + (this.url ? "" : " · 参考已断开");
+    chip.title = this.token.startsWith("<") ? label + " · " + this.token : label;
     chip.setAttribute("aria-label", this.url ? "预览 " + this.label : chip.title);
     if (this.url) chip.append(thumbnail(this.kind, this.url));
     else chip.classList.add("missing");
-    chip.append(document.createTextNode(chip.title));
+    chip.append(document.createTextNode(label));
     return chip;
   }
 }
-function decorations(doc, refs) {
-  const byToken = new Map(refs.map((r) => [refToken(r), r]));
-  return Decoration.set(
-    Array.from(doc.toString().matchAll(/@(图|视频|语音)(\d+)/gu), (match) =>
-      Decoration.replace({
-        widget: new PictureToken(match[0], byToken.get(match[0])),
-      }).range(match.index, match.index + match[0].length),
-    ),
-  );
+function decorations(doc, byToken) {
+  const marks = [];
+  for (const match of doc.toString().matchAll(/@(图|视频|语音)(\d+)|<(?:Picture|Video|Audio)[ \t]+\d+>/giu)) {
+    const [token, prefix, ordinal] = match;
+    const ref = byToken.get(tokenKey(token));
+    if (!ref && !prefix) continue;
+    const widget = new PictureToken(
+      token, ref?.asset.kind ?? editorKinds[prefix], ref?.number ?? Number(ordinal), ref?.asset.url,
+    );
+    marks.push(Decoration.replace({ widget }).range(match.index, match.index + token.length));
+  }
+  return Decoration.set(marks);
 }
 const pictures = StateField.define({
-  create: () => ({ refs: [], marks: Decoration.none }),
+  create: () => ({ refs: [], aliases: new Map(), byToken: new Map(), marks: Decoration.none }),
   update(value, tr) {
     const next = tr.effects.find((e) => e.is(replaceRefs));
     if (!next && !tr.docChanged) return value;
-    const refs = next?.value || value.refs;
-    return { refs, marks: decorations(tr.newDoc, refs) };
+    const { refs, aliases } = next?.value || value;
+    const byToken = next ? new Map([...refs.map((r) => [refToken(r), r]), ...aliases]) : value.byToken;
+    return { refs, aliases, byToken, marks: decorations(tr.newDoc, byToken) };
   },
   provide: (field) => [
     EditorView.decorations.from(field, (s) => s.marks),
@@ -134,6 +160,7 @@ function suggest(ctx) {
 
 export function ImagePrompt({
   promptLabel,
+  h3References,
   projectId,
   assets,
   data,
@@ -243,28 +270,23 @@ export function ImagePrompt({
   }, []);
   useLayoutEffect(() => {
     const view = editor.current;
-    const known = view.state.field(pictures).refs;
+    const known = view.state.field(pictures);
     const refs = resolved.refs;
-    const same =
-      refs.length === known.length &&
-      refs.every(
-        (r, i) =>
-          r.id === known[i].id &&
-          r.number === known[i].number &&
-          r.title === known[i].title &&
-          r.asset.url === known[i].asset.url &&
-          r.asset.name === known[i].asset.name,
-      );
+    const aliases = referenceAliases(resolved, h3References);
+    const same = refs.length === known.refs.length &&
+      refs.every((ref, i) => sameReference(ref, known.refs[i])) &&
+      aliases.size === known.aliases.size &&
+      [...aliases].every(([tag, ref]) => sameReference(ref, known.aliases.get(tag)));
     const changed = data.text !== view.state.doc.toString();
     if (!changed && same) return;
     view.dispatch({
-      effects: same ? [] : [replaceRefs.of(refs)],
+      effects: same ? [] : [replaceRefs.of({ refs, aliases })],
       changes: changed
         ? { from: 0, to: view.state.doc.length, insert: data.text }
         : undefined,
       annotations: [externalText.of(true), Transaction.addToHistory.of(false)],
     });
-  }, [data.text, resolved.refs]);
+  }, [data.text, resolved, h3References]);
   return (
     <>
       {!!resolved.refs.length && (
@@ -305,7 +327,7 @@ export function ImagePrompt({
       <div className="picture-editor" style={{ "--prompt-height": height === null ? undefined : `min(${height}px, 50dvh)` }}>
         <div ref={host} onClick={(e) => {
           const token = e.target.closest?.("button[data-token]")?.dataset.token;
-          const ref = token && resolved.refs.find((r) => refToken(r) === token);
+          const ref = token && editor.current?.state.field(pictures).byToken.get(tokenKey(token));
           if (ref) setPreview(ref);
         }} />
         <div className="prompt-resize" role="separator" aria-orientation="horizontal" tabIndex={0}

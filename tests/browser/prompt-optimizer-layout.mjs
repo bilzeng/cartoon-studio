@@ -6,8 +6,9 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { createServer } from "vite";
 import { makeNode } from "../../shared/studio.js";
+import { h3Opening } from "../../shared/prompt-optimizer.js";
 
-test("节点内一键替换提示词、选择并记住模型，等待期间的编辑优先", async (t) => {
+test("节点内优化提示词、保留进行中的任务和行内素材预览", async (t) => {
   const dir = await mkdtemp(path.join(tmpdir(), "studio-opt-layout-"));
   process.env.STUDIO_DATA_DIR = dir;
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -47,7 +48,11 @@ test("节点内一键替换提示词、选择并记住模型，等待期间的�
           { id: "sound", name: "音效", workflow: true, fields: [], mediaSlots: {} },
           { id: "extract", name: "提取音轨", workflow: true, hasPrompt: false, fields: [], mediaSlots: {} },
         ],
-        videoModels: [{ id: "test-video", name: "测试视频", fields: [] }],
+        videoModels: [
+          { id: "test-video", name: "测试视频", fields: [] },
+          { id: "test-h3", name: "H3 Hybrid", family: "h3", kind: "video",
+            workflow: true, maxRefs: 9, minRefs: 0, fields: [], mediaSlots: { image: 9 } },
+        ],
       },
     }),
   );
@@ -208,4 +213,44 @@ test("节点内一键替换提示词、选择并记住模型，等待期间的�
   assert.ok(await optimize.isDisabled());
   await open(utility);
   assert.equal(await optimize.count(), 0);
+
+  const coast = makeNode("image", { x: 0, y: 0 }, { title: "海岸", assetId: "coast" });
+  const actor = makeNode("image", { x: 0, y: 275 }, { title: "人物", assetId: "operator" });
+  const nativeText = h3Opening + "\nintegrated_multimodal_description: <Picture 1> walks past <Picture 2>.";
+  const h3 = makeNode("video", { x: 580, y: 0 }, {
+    videoModel: "test-h3", text: nativeText, imageRefOrder: [coast.id, actor.id], canvasRefIds: [actor.id],
+  });
+  const nativeProject = await page.request.post(base + "api/projects", { data: { board: {
+    name: "H3 行内预览",
+    nodes: [coast, actor, h3],
+    edges: [coast, actor].map(n => ({ id: crypto.randomUUID(), source: n.id, target: h3.id })),
+    order: [],
+  } } });
+  assert.equal(nativeProject.status(), 201);
+  const h3Board = await nativeProject.json();
+  const nativeEndpoint = base + "api/projects/" + h3Board.id;
+  await page.goto(base + "#project/" + h3Board.id + "?node=" + h3.id);
+  const h3Prompt = page.getByRole("textbox", { name: "视频节点提示词" });
+  const pictureOne = h3Prompt.locator('[data-token="<Picture 1>"]').first();
+  await pictureOne.locator("img").waitFor({ state: "attached" });
+  assert.match(await pictureOne.locator("img").getAttribute("src"), /operator/);
+  assert.equal(await pictureOne.textContent(), "图二");
+  assert.equal(await h3Prompt.locator('[data-token="<Picture 2>"]').count(), 0);
+  if (await locate.isVisible()) await locate.click();
+  await pictureOne.click();
+  const imagePreview = page.getByRole("dialog", { name: /图二 素材预览/ });
+  await imagePreview.waitFor();
+  assert.match(await imagePreview.locator("img").first().getAttribute("src"), /operator/);
+  await imagePreview.getByRole("button", { name: "关闭预览" }).click();
+
+  await button("生成设置").click();
+  const settings = page.getByRole("dialog", { name: "视频生成设置" });
+  await settings.getByRole("button", { name: "清除勾选" }).click();
+  await settings.getByRole("button", { name: /^图一 / }).click();
+  await settings.getByRole("button", { name: "完成", exact: true }).click();
+  assert.equal(await pictureOne.textContent(), "图一");
+  assert.match(await pictureOne.locator("img").getAttribute("src"), /coast/);
+  await page.locator(".flow-status").getByText("已保存", { exact: true }).waitFor();
+  const persisted = await (await page.request.get(nativeEndpoint)).json();
+  assert.equal(persisted.nodes.find(n => n.id === h3.id).data.text, nativeText);
 });

@@ -29,7 +29,7 @@ import { characterCardId, characterNameKey, characterTitleKey, isCharacterCard }
 import { PoseSwapEditor } from "./PoseSwap";
 import { poseSwapModelId } from "../shared/pose-swap";
 import {
-  h3ContinuationFields, h3ContinuationModelId, h3ContinuationSizeError, h3VideoModelId,
+  h3ContinuationFields, h3ContinuationModelId, h3ContinuationSizeError, h3VideoModelId, usesH3Prompt,
 } from "../shared/h3-video";
 import {
   defaultMaxSide,
@@ -835,6 +835,7 @@ export function NodeComposer({
             key={model?.promptLabel || kind}
             projectId={board.id}
             promptLabel={model?.hasPrompt && model.promptLabel}
+            h3References={kind === "video" && usesH3Prompt(model)}
             onResizeEnd={onPromptResize}
             {...{
               data,
