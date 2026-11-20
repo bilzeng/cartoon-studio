@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { createHash } from "node:crypto";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
@@ -23,8 +25,22 @@ test("工作台一键更新 main，等待生成、重启后刷新并保留项目
   git(base,"clone",source,client);
   await writeFile(path.join(client,".git/info/exclude"),"/node_modules\n");
   await symlink(path.resolve("node_modules"),path.join(client,"node_modules"),"junction");
-  execFileSync(process.execPath,[path.resolve("node_modules/vite/bin/vite.js"),"build"],{cwd:client,stdio:"pipe"});
-  const env={...process.env,PORT:"0",STUDIO_NO_OPEN:"1"};
+  const output = path.join(client, "dist/client");
+  await mkdir(output, { recursive: true });
+  await writeFile(path.join(output, "index.html"), "<p>Old front end</p>");
+  await writeFile(path.join(output, "studio-version.json"), JSON.stringify({ revision: "0".repeat(40) }));
+  const workspace = createHash("sha256").update(await realpath(client)).digest("hex");
+  const oldServer = createServer((req, res) => {
+    if (req.url === "/_studio/instance") {
+      res.setHeader("Content-Type", "application/json");
+      return res.end(JSON.stringify({ workspace }));
+    }
+    res.end("Old workbench");
+  }).listen(0, "127.0.0.1");
+  await once(oldServer, "listening");
+  t.after(() => new Promise(resolve => oldServer.close(resolve)));
+  const oldPort = oldServer.address().port;
+  const env={...process.env,PORT:String(oldPort),STUDIO_NO_OPEN:"1"};
   delete env.NODE_TEST_CONTEXT;
   delete env.STUDIO_DATA_DIR;
   function launch() {
@@ -38,6 +54,11 @@ test("工作台一键更新 main，等待生成、重启后刷新并保留项目
   let launcher=launch();
   t.after(async()=>{if(launcher.proc.exitCode===null && launcher.proc.signalCode===null) {const exit=once(launcher.proc,"exit"); launcher.proc.kill(); await exit;}});
   const url=await launcher.address;
+  assert.notEqual(new URL(url).port, String(oldPort));
+  assert.equal(await (await fetch("http://127.0.0.1:" + oldPort)).text(), "Old workbench");
+  const versionFile = JSON.parse(await readFile(path.join(output, "studio-version.json"), "utf8"));
+  assert.equal(versionFile.revision, git(client, "rev-parse", "HEAD"));
+  assert.equal(versionFile.updater, true);
   const browser=await chromium.launch();
   t.after(()=>browser.close());
   const page=await browser.newPage();
@@ -47,6 +68,10 @@ test("工作台一键更新 main，等待生成、重启后刷新并保留项目
   const btn=page.getByRole("button",{name:"更新并重启"});
   await btn.click();
   await page.getByRole("status").filter({hasText:"已是主分支最新版本"}).waitFor();
+  const duplicate = launch();
+  const duplicateExit = once(duplicate.proc, "exit");
+  assert.equal(await duplicate.address, url);
+  assert.equal((await duplicateExit)[0], 0);
   const project=await (await page.request.post(url+"/api/projects",{data:{name:"更新保留的项目"}})).json();
   assert.ok(project.id);
   await writeFile(path.join(source,"public","update-fixture.txt"),"new main");

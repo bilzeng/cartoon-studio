@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { access, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
@@ -39,6 +40,11 @@ export async function checkoutVersion(root) {
   if (!existsSync(path.join(root, ".git"))) return null;
   return git(root, "rev-parse", "HEAD");
 }
+export async function builtVersion(root) {
+  return readFile(path.join(root, "dist/client/studio-version.json"), "utf8")
+    .then(text => JSON.parse(text) || {}).catch(() => ({}));
+}
+
 export async function activeRelease(root) {
   try {
     const id = (await readFile(path.join(updateDir(root), "active"), "utf8")).trim();
@@ -99,6 +105,62 @@ async function npmCli(root, temp) {
   return path.join(temp, "package/bin/npm-cli.js");
 }
 
+async function buildStudio(root, directory, id, temp, install, progress) {
+  const npm = await npmCli(root, temp);
+  const env = {
+    PATH: path.dirname(process.execPath) + path.delimiter + process.env.PATH,
+    STUDIO_BUILD_REVISION: id || "",
+  };
+  if (install) {
+    progress("正在安装依赖…");
+    await command(process.execPath, [npm, "ci", "--include=dev", "--no-audit", "--no-fund"], directory, 600000, env)
+      .catch(() => { throw Error("依赖安装失败，请检查 npm 网络连接和磁盘空间后重试。"); });
+  }
+  progress("正在构建新版本…");
+  await command(process.execPath, [npm, "run", "build"], directory, 300000, env)
+    .catch(() => { throw Error("页面构建失败，请检查本地 Node.js 环境和磁盘空间。"); });
+}
+
+// Source ZIPs have no Git revision. Compare the actual frontend inputs in that case.
+export async function frontendFingerprint(root) {
+  const files = [path.join(root, "index.html"), path.join(root, "vite.config.mjs")];
+  for (const part of ["src", "shared", "public"]) {
+    const directory = path.join(root, part);
+    for (const file of await readdir(directory, { recursive: true, withFileTypes: true })) {
+      if (file.isFile()) files.push(path.join(file.parentPath, file.name));
+    }
+  }
+  const hash = createHash("sha256");
+  for (const file of files.sort()) {
+    const name = path.relative(root, file).split(path.sep).join("/");
+    hash.update(name).update("\0").update(createHash("sha256").update(await readFile(file)).digest());
+  }
+  return hash.digest("hex");
+}
+
+export async function refreshSourceBuild(root, head) {
+  // Offline packages ship a built page and don't include the build configuration.
+  if (!existsSync(path.join(root, "vite.config.mjs"))) return;
+  const build = await builtVersion(root);
+  const fresh = build.updater === true && existsSync(path.join(root, "dist/client/index.html"))
+    && (head ? head === build.revision : build.frontend === await frontendFingerprint(root));
+  const { dependencies, devDependencies } = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const required = fresh ? dependencies : { ...dependencies, ...devDependencies };
+  const missing = Object.keys(required).some(name => !existsSync(path.join(root, "node_modules", name, "package.json")));
+  const lock = await readFile(path.join(root, "package-lock.json"));
+  const lockDigest = createHash("sha256").update(lock).digest("hex");
+  const changedDependencies = build.lockDigest && build.lockDigest !== lockDigest;
+  if (fresh && !missing && !changedDependencies) return;
+
+  // The SDK is already present when the source launcher is used.
+  const temp = await mkdtemp(path.join(tmpdir(), "studio-start-"));
+  try {
+    await buildStudio(root, root, head, temp, missing || changedDependencies, console.log);
+  } finally {
+    await rm(temp, { recursive: true, force: true });
+  }
+}
+
 export async function prepareUpdate(root, installed, progress) {
   const previous = await checkoutVersion(root);
   let id, branch;
@@ -133,14 +195,7 @@ export async function prepareUpdate(root, installed, progress) {
       await writeFile(archive, Buffer.from(await file.arrayBuffer()));
       await command("tar", ["-xzf", archive, "--strip-components=1", "-C", stage], temp);
     }
-    progress("正在安装依赖…");
-    const npm = await npmCli(root, temp);
-    const env = { PATH: path.dirname(process.execPath) + path.delimiter + process.env.PATH, STUDIO_BUILD_REVISION: id };
-    await command(process.execPath, [npm, "ci", "--include=dev", "--no-audit", "--no-fund"], stage, 600000, env)
-      .catch(() => { throw Error("依赖安装失败，请检查 npm 网络连接和磁盘空间后重试。"); });
-    progress("正在构建新版本…");
-    await command(process.execPath, [npm, "run", "build"], stage, 300000, env)
-      .catch(() => { throw Error("主分支构建失败，当前版本仍可使用。"); });
+    await buildStudio(root, stage, id, temp, true, progress);
     await access(path.join(stage, "dist/client/index.html"));
     await access(path.join(stage, "server/serve.mjs"));
     await access(path.join(stage, "server/studio-supervisor.mjs"));

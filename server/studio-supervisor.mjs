@@ -1,17 +1,16 @@
 // Keep the launch window and the browser address alive across application restarts.
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import lockfile from "proper-lockfile";
-import { activeRelease, holdRelease, pruneReleases, updateDir, recordActive } from "./studio-update.mjs";
+import { activeRelease, builtVersion, holdRelease, pruneReleases, updateDir, recordActive } from "./studio-update.mjs";
 
 export async function runStudio(root, active, head) {
   const base = updateDir(root);
   if (active.id) holdRelease(active.directory);
-  const buildId = await readFile(path.join(root, "dist/client/studio-version.json"), "utf8")
-    .then(JSON.parse).then(m => m.revision).catch(() => "");
+  const buildId = (await builtVersion(root)).revision;
   let installed = active.id || buildId || head || "";
   let state = { phase: "idle", message: "", version: installed };
   let child, port, switching = false, busy = false;
@@ -20,9 +19,9 @@ export async function runStudio(root, active, head) {
     state = { phase, message, version: installed };
     if (child?.connected) child.send({ type: "status", state }, () => {});
   }
-  function launch(directory, initial = false) {
+  function launch(directory, version, initial = false) {
     const worker = fork(path.join(directory, "server/serve.mjs"), initial ? process.argv.slice(2) : [], {
-      cwd: root, env: { ...process.env, STUDIO_INSTALL_ROOT: root, ...(port && { PORT: String(port), STUDIO_EXACT_PORT: "1" }) },
+      cwd: root, env: { ...process.env, STUDIO_INSTALL_ROOT: root, STUDIO_RUNNING_REVISION: version, ...(port && { PORT: String(port), STUDIO_EXACT_PORT: "1" }) },
     });
     child = worker;
     return new Promise((resolve, reject) => {
@@ -85,13 +84,13 @@ export async function runStudio(root, active, head) {
       await stopWorker(true);
       status("restarting", "正在启动新版本…");
       try {
-        await launch(plan.directory);
+        await launch(plan.directory, plan.id);
         await recordActive(root, plan.id);
         await updater.advanceCheckout(root, plan);
       } catch (e) {
         await stopWorker(false);
         await recordActive(root, priorSelection.id);
-        await launch(old.directory);
+        await launch(old.directory, installed);
         throw e;
       }
       installed = plan.id;
@@ -111,7 +110,7 @@ export async function runStudio(root, active, head) {
     if (child?.exitCode === null) child.kill(signal);
     process.exit(0);
   });
-  await launch(active.directory, true).catch(e => {
+  await launch(active.directory, installed, true).catch(e => {
     // A duplicate launcher opens the running workspace then exits successfully.
     if (child?.exitCode !== 0) { console.error(e.message); process.exitCode = 1; }
   });

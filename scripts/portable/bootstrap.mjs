@@ -1,4 +1,4 @@
-// Only source checkouts need bootstrapping. Release packages already contain these files.
+// Source checkouts need FFmpeg. The main launcher prepares the frontend build.
 import { existsSync } from "node:fs";
 import {
   chmod,
@@ -45,20 +45,3 @@ if (!existsSync(executable)) {
     await rm(dir, { recursive: true, force: true });
   }
 }
-const npm = win
-  ? "runtime/sdk/node_modules/npm/bin/npm-cli.js"
-  : "runtime/sdk/lib/node_modules/npm/bin/npm-cli.js";
-const run = (args) =>
-  execFileSync(process.execPath, [npm, ...args], {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      npm_config_cache: path.resolve("runtime/npm-cache"),
-    },
-  });
-const { dependencies } = JSON.parse(await readFile("package.json", "utf8"));
-const missingDependency = Object.keys(dependencies).some(name => !existsSync(path.join("node_modules", name, "package.json")));
-const needsBuild = missingDependency || !existsSync("dist/client/index.html");
-if (missingDependency || (needsBuild && !existsSync("node_modules/vite/package.json")))
-  run(["ci", "--include=dev"]);
-if (needsBuild) run(["run", "build"]);

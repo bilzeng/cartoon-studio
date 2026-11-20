@@ -1,7 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { frontendFingerprint } from "./server/studio-update.mjs";
 export default defineConfig({
   build: { outDir: "dist/client" },
   server: {
@@ -26,13 +28,19 @@ export default defineConfig({
     {
       name: "studio-build-version",
       apply: "build",
-      generateBundle() {
+      async generateBundle() {
         let revision = process.env.STUDIO_BUILD_REVISION;
         if (!revision && existsSync(".git")) {
           try { revision = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); }
-          catch { return; }
+          catch { revision = ""; }
         }
-        if (/^[a-f0-9]{40}$/.test(revision)) this.emitFile({ type: "asset", fileName: "studio-version.json", source: JSON.stringify({ revision }) });
+        const lockDigest = createHash("sha256").update(readFileSync("package-lock.json")).digest("hex");
+        this.emitFile({ type: "asset", fileName: "studio-version.json", source: JSON.stringify({
+          revision: /^[a-f0-9]{40}$/.test(revision) ? revision : "",
+          updater: true,
+          frontend: revision ? "" : await frontendFingerprint(process.cwd()),
+          lockDigest,
+        }) });
       },
     },
     {

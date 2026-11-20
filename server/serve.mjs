@@ -5,10 +5,12 @@ import { spawn } from "node:child_process";
 import { access, realpath } from "node:fs/promises";
 import { studioApi } from "./api.mjs";
 import { root, jobs } from "./storage.mjs";
-import { holdRelease } from "./studio-update.mjs";
+import { builtVersion, holdRelease } from "./studio-update.mjs";
 
 const app = express(),
   files = path.join(root, "dist/client");
+const build = await builtVersion(root);
+const version = process.env.STUDIO_RUNNING_REVISION || build.revision || build.frontend || "";
 const workspace = createHash("sha256")
   .update(await realpath(process.env.STUDIO_INSTALL_ROOT || root))
   .digest("hex");
@@ -51,10 +53,15 @@ process.on("message", async msg => {
 });
 process.on("disconnect", () => process.exit(0));
 app.get("/_studio/instance", (_req, res) =>
-  res.set("Cache-Control", "no-store").json({ workspace }),
+  res.set("Cache-Control", "no-store").json({ workspace, version, updater: true }),
 );
-app.use(express.static(files));
-app.get("/{*all}", (_req, res) => res.sendFile(path.join(files, "index.html")));
+app.use(express.static(files, {
+  index: false,
+  setHeaders(res, file) {
+    if (file === path.join(files, "index.html")) res.setHeader("Cache-Control", "no-store");
+  },
+}));
+app.get("/{*all}", (_req, res) => res.set("Cache-Control", "no-store").sendFile("index.html", { root: files }));
 
 function listen(port) {
   return new Promise((resolve, reject) => {
@@ -76,7 +83,11 @@ for (let attempts = 0; ; attempts++) {
     )
       .then((r) => r.json())
       .catch(() => null);
-    if (active?.workspace === workspace) { server = null; break; }
+    // An older launcher can still own the default port after a manual upgrade.
+    if (active?.workspace === workspace && active.updater === true && active.version === version) {
+      server = null;
+      break;
+    }
     port = attempts < 8 && port < 65535 ? port + 1 : 0;
   }
 }

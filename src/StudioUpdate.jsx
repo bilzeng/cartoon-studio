@@ -15,7 +15,7 @@ async function request(method, signal) {
 }
 
 export function StudioUpdate({ notify }) {
-  const [state, setState] = useState(null);
+  const [state, setState] = useState({ phase: "checking" });
   const [watch, setWatch] = useState(false);
   const pending = useRef(false);
   useEffect(() => {
@@ -23,7 +23,9 @@ export function StudioUpdate({ notify }) {
     let timer, failures = 0;
     async function poll() {
       try {
-        const s = await request("GET", AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
+        const timeout = AbortSignal.timeout?.(5000);
+        const signal = timeout && AbortSignal.any ? AbortSignal.any([controller.signal, timeout]) : controller.signal;
+        const s = await request("GET", signal);
         if (controller.signal.aborted) return;
         setState(s);
         failures = 0;
@@ -44,7 +46,11 @@ export function StudioUpdate({ notify }) {
           }
         }
       } catch {
-        if (controller.signal.aborted || !sessionStorage.getItem(pendingKey)) return;
+        if (controller.signal.aborted) return;
+        if (!sessionStorage.getItem(pendingKey)) {
+          setState({ phase: "unavailable", message: "请用新版启动脚本打开工作室以启用更新。" });
+          return;
+        }
         if (++failures < 90) {
           setState({ phase: "restarting", message: "正在重新连接工作室…" });
           timer = setTimeout(poll, 1000);
@@ -66,7 +72,7 @@ export function StudioUpdate({ notify }) {
     sessionStorage.setItem(pendingKey, "1");
     setState({ phase: "working", message: "正在检查主分支…" });
     try {
-      await request("POST", AbortSignal.timeout(8000));
+      await request("POST", AbortSignal.timeout?.(8000));
     } catch (e) {
       if (e.status) {
         sessionStorage.removeItem(pendingKey);
@@ -78,12 +84,12 @@ export function StudioUpdate({ notify }) {
     }
     setWatch(v => !v);
   }
-  if (!state) return null;
   const busy = updating(state.phase);
+  const unavailable = state.phase === "unavailable";
   return <nav aria-label="软件更新" className="studio-update" aria-live="polite">
-    <button type="button" onClick={apply} disabled={busy} title={state.version ? "当前版本 " + state.version.slice(0, 7) : undefined}>
+    <button type="button" onClick={apply} disabled={busy || unavailable || state.phase === "checking"} title={state.version ? "当前版本 " + state.version.slice(0, 7) : undefined}>
       <RefreshCw size={17} />{busy ? "正在更新" : "更新并重启"}
     </button>
-    {(busy || state.phase === "error") && <small>{state.message}</small>}
+    {(busy || unavailable || state.phase === "error") && <small>{state.message}</small>}
   </nav>;
 }
