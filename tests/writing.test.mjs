@@ -40,6 +40,13 @@ test("同一梗概重做大纲时保留已写的章节，新篇幅及自定义�
     JSON.stringify({ script: "站台。她把手从口袋里抽出来。" }),
   );
   editContent(draft, { action: "settings", value: { ...draft, seconds: 35 } });
+  draft.messages.push({
+    role: "user",
+    action: "outline",
+    text: "主角是司机",
+    ideaId: draft.selectedId,
+    chapterId: old.id,
+  });
   const input = modelInput(draft, "outline", old.id, null, "从车内开场");
   assert.match(input.system, /只用短对白/);
   assert.equal(JSON.parse(input.user).每章目标秒数, 35);
@@ -47,6 +54,19 @@ test("同一梗概重做大纲时保留已写的章节，新篇幅及自定义�
     draft,
     { action: "outline", chapterId: old.id },
     JSON.stringify({ chapters: [{ ...first, title: "车内" }] }),
+  );
+  draft.messages.push({
+    role: "user",
+    action: "concept",
+    text: "原案后来改成售票员",
+    ideaId: draft.ideas[0].id,
+  });
+  const notes = JSON.parse(
+    modelInput(draft, "script", activeConcept(draft).chapters[0].id).user,
+  ).当前选稿的作者留言;
+  assert.deepEqual(
+    notes.map((n) => n.原话),
+    ["主角是司机"],
   );
   assert.notEqual(draft.selectedId, draft.ideas[0].id);
   assert.equal(activeConcept(draft).chapters[0].seconds, 35);
@@ -91,4 +111,71 @@ test("正文或资产修改会标明后续待复核，同名资产重写继续�
   assert.equal(chapter.shots.length, 2);
   editContent(draft, { action: "review", chapterId: "chapter", value: "shots" });
   assert.deepEqual(chapter.review, []);
+});
+
+test("旧稿的作者纠正跨轮保留，未选备选与自动回执不成为剧情依据", () => {
+  const correction = "写错了，他离开的原因是缺钱。靠修第一台收音机起步，最后开自己的店。";
+  const proposal = {
+    title: "卧底之谜",
+    hook: "门缝里有暗号",
+    summary: "邮差其实是卧底",
+    appeal: "暗号来自谁",
+  };
+  const draft = {
+    ...config({ name: "回声", style: "drama", direction: "", count: 1, seconds: 60 }),
+    brief: "他因下雨离开镇子。",
+    ideas: [],
+    messages: [],
+    selectedId: "",
+  };
+  applyReply(
+    draft,
+    { action: "ideas" },
+    JSON.stringify({ ideas: [proposal, { ...proposal, title: "月台" }, { ...proposal, title: "高楼" }] }),
+  );
+  draft.messages = [
+    { role: "user", action: "ideas", text: draft.brief },
+    { role: "assistant", action: "ideas", text: "写好了《卧底之谜》。" },
+    { role: "user", action: "ideas", text: correction },
+    ...Array.from({ length: 20 }, (_, i) => ({ role: "assistant", action: "chat", text: "讨论对白" + i })),
+    { role: "user", action: "ideas", text: "生成三版梗概" },
+  ];
+  const context = (action, note = "", chapterId) =>
+    JSON.parse(modelInput(draft, action, chapterId, undefined, note).user);
+  const fresh = context("ideas");
+  assert.equal(fresh.作者设定, draft.brief);
+  assert.deepEqual(fresh.作者历次补充, [correction]);
+  assert.equal(fresh.最近对话.length, 12);
+  assert.equal(fresh.作者片名, "回声");
+  assert.doesNotMatch(JSON.stringify(fresh), /卧底/);
+  assert.equal(context("ideas", "上轮方案写错了，请按最新要求重来").供讨论或点名参考的备选, undefined);
+  for (const note of ["只沿用方案2的地点", "参考第二个梗概的开头", "保留《月台》的地点"])
+    assert.deepEqual(
+      context("ideas", note).供讨论或点名参考的备选.map((x) => x.方案编号),
+      [2],
+    );
+  assert.equal(context("chat").供讨论或点名参考的备选.length, 3);
+  const cutoff = draft.messages.length;
+  draft.messages.push({ role: "user", action: "ideas", authored: true, text: "把店铺设在码头。" });
+  editContent(draft, {
+    action: "memory",
+    value: { premise: "修理工因缺钱离乡，靠修收音机开店。", through: cutoff },
+  });
+  assert.deepEqual(context("ideas").作者历次补充, ["把店铺设在码头。"]);
+  assert.doesNotMatch(JSON.stringify(context("ideas")), /下雨|卧底|讨论对白/);
+  editContent(draft, { action: "select", id: draft.ideas[1].id });
+  applyReply(
+    draft,
+    { action: "outline" },
+    JSON.stringify({ chapters: [{ title: "街角", summary: "第一次修理" }] }),
+  );
+  const chapter = activeConcept(draft).chapters[0];
+  chapter.script = "他推开修理铺的门。";
+  chapter.assets = [{ id: "a", name: "一把旧钥匙", type: "prop", description: "黄铜" }];
+  for (const action of ["outline", "script", "assets", "shots"]) {
+    const ctx = context(action, "", chapter.id);
+    assert.match(ctx.作者设定, /缺钱/);
+    assert.deepEqual(ctx.作者历次补充, ["把店铺设在码头。"]);
+    assert.equal(ctx.供讨论或点名参考的备选, undefined);
+  }
 });

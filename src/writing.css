@@ -434,6 +434,36 @@
 .wr-chat h2 svg {
   color: var(--genre);
 }
+.wr-earlier-ideas > div {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.wr-memory {
+  padding: 0 16px 12px;
+}
+.wr-memory summary small {
+  color: var(--wr-muted);
+}
+.wr-memory-body {
+  margin-top: 8px;
+  max-height: 190px;
+  overflow: auto;
+  font-size: 13px;
+}
+.wr-memory-body p,
+.wr-memory-body li {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.wr-memory-body ol {
+  padding-left: 22px;
+  margin: 8px 0;
+  line-height: 1.6;
+}
+.wr-memory-body li + li {
+  margin-top: 6px;
+}
 .wr-messages {
   min-height: 145px;
   max-height: min(46vh, 540px);

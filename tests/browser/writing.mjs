@@ -122,13 +122,31 @@ test("编剧对话离开后续写，手改方案贯穿章节、资产、分镜�
   release();
   await page.getByRole("heading", { name: "雨信" }).waitFor();
   assert.match(requests[0].system, /误读的线索/);
+  const correction = "寄信的是妹妹。她在找多年没回家的哥哥。";
+  await page.getByLabel("和编剧聊聊").fill(correction);
+  await button("按当前设定再写三版").click();
+  await page.getByText("更早的方案（3）").waitFor();
+  assert.equal(requests.at(-1).ctx.作者要求, correction);
+  assert.equal(requests.at(-1).ctx.供讨论或点名参考的备选, undefined);
+  await page.reload();
+  await page.locator("summary").filter({ hasText: "故事设定" }).click();
+  await page.locator(".wr-memory-body li").filter({ hasText: correction }).waitFor();
+  await button("整理设定").click();
+  await page.getByLabel("后续创作采用的设定").fill("妹妹寄出一封迟到了三十年的信，等待哥哥回家。");
+  await button("保存修改").click();
+  await page.getByText("更早的方案（3）").click();
   await button("编辑梗概 1").click();
   await page.getByRole("dialog").getByLabel("故事梗概").fill("邮差发现信封是自己小时候折的。");
   await button("保存修改").click();
-  await button("选用这个梗概").first().click();
+  await page
+    .locator("article")
+    .filter({ hasText: "自己小时候折的" })
+    .getByRole("button", { name: "选用这个梗概" })
+    .click();
   await button("生成章节大纲").click();
   await page.getByRole("heading", { name: "第一封" }).waitFor();
   assert.match(requests.at(-1).ctx.选定梗概.summary, /小时候折的/);
+  assert.match(requests.at(-1).ctx.作者设定, /等待哥哥回家/);
   await button("去扩写本章").first().click();
   await page.getByLabel("和编剧聊聊").fill("怎么表现邮差的犹豫？");
   await button("只讨论").click();

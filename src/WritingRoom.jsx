@@ -31,6 +31,7 @@ import {
   activeConcept,
   assetFields,
   conceptFields,
+  storyMemory,
   takeFields,
   writers,
   writingActions,
@@ -50,6 +51,7 @@ const styleIcons = {
 };
 const defaults = { name: "", style: "reversal", direction: "", count: 1, seconds: 60, brief: "" };
 const limits = {
+  premise: 32000,
   title: 80,
   hook: 1500,
   summary: 3000,
@@ -394,7 +396,7 @@ function EditDialog({ edit, save, close, assets, busy }) {
                   />
                 ) : (
                   <textarea
-                    rows={key === "script" ? 14 : 3}
+                    rows={key === "script" || key === "premise" ? 12 : 3}
                     required={key !== "dialogue"}
                     value={value[key]}
                     maxLength={key === "summary" && edit.action === "idea" ? 4000 : limits[key]}
@@ -463,9 +465,13 @@ function Manuscript({ draft, stage, idea, chapter, disabled, select, edit, choos
       onClick={() => edit({ action, value: item, fields, label, id: item.id, chapterId: chapter?.id })}
     />
   );
-  if (stage === "ideas")
-    return draft.ideas.length ? (
-      draft.ideas.map((item, i) => (
+  if (stage === "ideas") {
+    if (!draft.ideas.length) return <Empty text="把故事创意发给编剧，这里会出现三版可编辑的梗概。" />;
+    const currentCards = [],
+      olderCards = [];
+    draft.ideas.forEach((item, i) => {
+      const cards = i >= draft.ideas.length - 3 || item.id === idea?.id ? currentCards : olderCards;
+      cards.push(
         <article className={"wr-card" + (item.id === idea?.id ? " selected" : "")} key={item.id}>
           <header>
             <small>方案 {i + 1}</small>
@@ -482,11 +488,21 @@ function Manuscript({ draft, stage, idea, chapter, disabled, select, edit, choos
             {item.id === idea?.id ? <Check size={14} /> : <ArrowRight size={14} />}
             {item.id === idea?.id ? "已选用 · 查看章节" : "选用这个梗概"}
           </button>
-        </article>
-      ))
-    ) : (
-      <Empty text="把故事创意发给编剧，这里会出现三版可编辑的梗概。" />
+        </article>,
+      );
+    });
+    return (
+      <>
+        {currentCards}
+        {olderCards.length > 0 && (
+          <details className="wr-earlier-ideas">
+            <summary>更早的方案（{olderCards.length}）</summary>
+            <div>{olderCards}</div>
+          </details>
+        )}
+      </>
     );
+  }
   if (!idea) return <Empty text="先从故事梗概中选定一个方案。" />;
   if (stage === "outline")
     return idea.chapters.length ? (
@@ -697,7 +713,7 @@ function Workbench({ id, go }) {
         action,
         profileId: model.profileId,
         note: note.trim(),
-        chapterId: chapter?.id,
+        chapterId: ["script", "assets", "shots"].includes(stage) ? chapter?.id : undefined,
         shotId: target?.id,
       });
       setNote("");
@@ -714,6 +730,7 @@ function Workbench({ id, go }) {
         <p role="status">{error || "正在读取剧本…"}</p>
       </div>
     );
+  const memory = storyMemory(draft);
   const locked = busy || !!pending;
   const action = target ? "shot" : stage === "ideas" && idea && note.trim() ? "concept" : stage;
   const ready =
@@ -726,6 +743,7 @@ function Workbench({ id, go }) {
             (stage === "script" || (chapter.script && (stage === "assets" || chapter.assets.length)))))));
   const label =
     {
+      ideas: draft.ideas.length > 0 && "按当前设定再写三版",
       outline: idea?.chapters.length && "另起一版大纲",
       script: chapter?.script && "重写本章剧本",
       assets: chapter?.assets.length && "更新本章资产",
@@ -790,9 +808,42 @@ function Workbench({ id, go }) {
             <Feather size={17} />
             {writers[draft.style].name}编剧
           </h2>
+          <details className="wr-memory">
+            <summary>
+              故事设定{memory.additions.length > 0 && <small> · {memory.additions.length} 条作者补充</small>}
+            </summary>
+            <div className="wr-memory-body">
+              <p>{memory.premise}</p>
+              {!!memory.additions.length && (
+                <ol>
+                  {memory.additions.map((text, i) => (
+                    <li key={i}>{text}</li>
+                  ))}
+                </ol>
+              )}
+              <button
+                className="quiet"
+                disabled={locked}
+                onClick={() =>
+                  edit({
+                    action: "memory",
+                    label: "整理故事设定",
+                    fields: { premise: "后续创作采用的设定" },
+                    value: {
+                      premise: [memory.premise, ...memory.additions].join("\n\n"),
+                      through: draft.messages.length,
+                    },
+                  })
+                }
+              >
+                <Pencil size={13} />
+                整理设定
+              </button>
+            </div>
+          </details>
           <div ref={chat} className="wr-messages" role="log" aria-label="编剧对话">
             <div className="wr-message author">
-              <small>故事创意</small>
+              <small>最初创意</small>
               <p>{draft.brief}</p>
             </div>
             {draft.messages

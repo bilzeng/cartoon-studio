@@ -74,6 +74,26 @@ export const takeFields = {
   videoPrompt: "分镜视频提示词",
 };
 export const activeConcept = (draft) => draft.ideas.find((idea) => idea.id === draft.selectedId);
+// Messages are already persisted. Older drafts can recover the author's notes without migration.
+export function isAuthorNote(message) {
+  return message.role === "user" && (message.authored ?? message.text !== writingActions[message.action]);
+}
+export function writingScope(message) {
+  if (!message.ideaId) return "全剧";
+  if (["ideas", "concept", "outline"].includes(message.action)) return "所选梗概";
+  if (message.shotId) return "单镜";
+  return message.chapterId ? "本章" : "所选梗概";
+}
+export function storyMemory(draft) {
+  const saved = draft.storyMemory;
+  const additions = [];
+  for (const [index, message] of draft.messages.entries()) {
+    if (index < (saved?.through || 0) || writingScope(message) !== "全剧" || !isAuthorNote(message)) continue;
+    if (index === 0 && message.text === draft.brief) continue;
+    additions.push(message.text);
+  }
+  return { premise: saved?.text ?? draft.brief, additions };
+}
 export function chapterBoard(idea, chapter) {
   const number = idea.chapters.findIndex((c) => c.id === chapter.id) + 1;
   const name = (idea.title + " · 第" + number + "章 " + chapter.title).slice(0, 100);

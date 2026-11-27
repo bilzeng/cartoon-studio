@@ -60,6 +60,7 @@ async function finish(id, task, input, profile) {
         action: task.action,
         ideaId: draft.selectedId,
         chapterId: task.chapterId,
+        shotId: task.shotId,
       });
       draft.task = null;
     });
@@ -125,7 +126,9 @@ export function registerWriting(api) {
     ),
   );
   api.post("/writing/:id/generate", async (req, res) => {
-    const { action, profileId, note = "", chapterId, shotId, revision } = req.body || {};
+    const { action, profileId, note = "", revision } = req.body || {};
+    const chapterId = ["ideas", "outline", "concept"].includes(action) ? undefined : req.body.chapterId;
+    const shotId = action === "chat" || action === "shot" ? req.body.shotId : undefined;
     const message = string(note, "创作要求", 6000, action !== "chat");
     const profile = (await settings()).promptModels?.find((p) => p.id === profileId);
     if (!profile) throw fail("请先在「提示词模型」中配置编剧使用的模型");
@@ -139,9 +142,11 @@ export function registerWriting(api) {
       d.messages.push({
         role: "user",
         text: message || writingActions[action],
+        authored: !!message,
         action,
         ideaId: d.selectedId,
         chapterId,
+        shotId,
       });
     });
     running.add(task.id);

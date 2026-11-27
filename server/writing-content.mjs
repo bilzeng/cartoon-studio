@@ -2,6 +2,9 @@ import {
   activeConcept,
   assetFields,
   conceptFields,
+  isAuthorNote,
+  writingScope,
+  storyMemory,
   takeFields,
   writers,
   writingActions,
@@ -108,6 +111,16 @@ function current(draft, chapterId) {
 }
 export function editContent(draft, command) {
   const { action, value, id, chapterId } = command;
+  if (action === "memory") {
+    const through = integer(
+      value?.through,
+      "整理位置",
+      draft.storyMemory?.through || 0,
+      draft.messages.length,
+    );
+    draft.storyMemory = { text: string(value?.premise, "故事设定", 32000), through };
+    return;
+  }
   if (action === "settings") return Object.assign(draft, config(value));
   if (action === "select") {
     if (!draft.ideas.some((i) => i.id === id)) throw fail("梗概不存在");
@@ -146,7 +159,7 @@ export function editContent(draft, command) {
 const formats = {
   chat: "结合对话和当前选稿，直接用中文回应作者，可以提出具体修改建议。只返回普通文本。",
   ideas:
-    '提出三个截然不同的故事走向。每个方案写一个可拍的开场钩子、用三句话写清谁遇到什么和留下什么悬念，再给出核心看点及追看理由。返回 {"ideas":[{"title":"","hook":"","summary":"","appeal":""}]}。',
+    '在作者确定的人物关系、动机、起点和结局之内给出三种故事走向。用不同的切入场景、人物选择或叙事节奏产生差异。作者要写成长历程时，给出从起点到目标的关键选择与变化。每个方案写一个可拍的开场钩子、用三句话写清谁遇到什么和留下什么悬念，再给出核心看点及追看理由。返回 {"ideas":[{"title":"","hook":"","summary":"","appeal":""}]}。',
   concept: '按照修改要求仅修改选定梗概。返回 {"idea":{"title":"","hook":"","summary":"","appeal":""}}。',
   outline:
     '为选定梗概构建完整叙事弧，严格按目标章数输出。每章用一至三句说明起点、转折、落点和如何衔接下一章，篇幅适合该章目标秒数。返回 {"chapters":[{"title":"","summary":""}]}。',
@@ -163,7 +176,41 @@ const shotShape =
 function chapterContext(c) {
   return { title: c.title, summary: c.summary, seconds: c.seconds };
 }
-export function modelInput(draft, action, chapterId, shotId, note) {
+function referenceIdeas(ideas, action, note) {
+  if (action !== "ideas" && action !== "chat") return;
+  const named = new Set();
+  // Use the same 1-based numbering as the manuscript cards, including for archived proposals.
+  const digits = "零一二三四五六七八九";
+  function numberOf(value) {
+    if (/^\d+$/.test(value)) return Number(value);
+    const [tens, units] = value.replace("两", "二").split("十");
+    return units === undefined
+      ? digits.indexOf(tens)
+      : (tens ? digits.indexOf(tens) : 1) * 10 + digits.indexOf(units || "零");
+  }
+  for (const match of note.matchAll(
+    /(?:方案|梗概|选项|版本|option\s*|#)\s*([0-9一二两三四五六七八九十]+)|第\s*([0-9一二两三四五六七八九十]+)\s*(?:个|种|版|套|条|案|个?方案|个?梗概)/giu,
+  )) {
+    named.add(numberOf(match[1] || match[2]));
+  }
+  const references = ideas.flatMap((idea, i) =>
+    named.has(i + 1) ||
+    note.includes("《" + idea.title + "》") ||
+    (idea.title.length >= 2 && note.includes(idea.title))
+      ? [{ 方案编号: i + 1, ...ideaText(idea) }]
+      : [],
+  );
+  if (references.length) return references;
+  if (
+    action === "chat" ||
+    /(?:沿用|保留|结合|参考|修改|改写)(?:上一?轮|上一?版|这三[个版种]|前面|之前|刚才)/u.test(note)
+  )
+    return ideas
+      .slice(-3)
+      .map((idea, i, last) => ({ 方案编号: ideas.length - last.length + i + 1, ...ideaText(idea) }));
+}
+
+export function modelInput(draft, action, chapterId, shotId, note = "") {
   if (!Object.hasOwn(formats, action)) throw fail("未知的创作步骤");
   const { idea, chapter } = current(
     draft,
@@ -186,6 +233,8 @@ export function modelInput(draft, action, chapterId, shotId, note) {
     "你是镜场的签约编剧，与作者共同开发可实际拍摄的作品。",
     writers[draft.style].prompt,
     draft.direction,
+    "先核对作者设定、历次作者补充和本轮要求。作者明确更正的动机、关系、起点、目标按时间以最新表述为准，未改动的事实继续有效。这些约束适用于每一个备选和后续制作。提问、试探和单镜要求只按原意及适用范围处理。",
+    "未选梗概与编剧在讨论中提出的情节都属于备选。只有作者采纳或明确引用的部分可延续。即使是选稿，与作者后续明确纠正冲突的部分也须重写。编剧风格服从作者设定。",
     format,
     action !== "chat" && "只输出要求的 JSON 对象。所有内容使用作者的语言。",
   ]
@@ -201,20 +250,45 @@ export function modelInput(draft, action, chapterId, shotId, note) {
     ...s,
     assetIds: s.assetIds.map((id) => assets[chapter.assets.findIndex((a) => a.id === id)]?.id),
   });
+  const memory = storyMemory(draft);
+  // Inherit only the parent conversation that existed when this version branched.
+  const branchLimits = new Map();
+  let branch = idea,
+    through = draft.messages.length;
+  while (branch && !branchLimits.has(branch.id)) {
+    branchLimits.set(branch.id, through);
+    through = Math.min(through, branch.source?.through ?? 0);
+    branch = branch.source && draft.ideas.find((item) => item.id === branch.source.id);
+  }
+  const localMessages = draft.messages.filter((m, i) => {
+    const scope = writingScope(m);
+    if (scope === "全剧" || i >= (branchLimits.get(m.ideaId) ?? 0)) return false;
+    if (scope === "所选梗概") return true;
+    return m.chapterId === chapter?.id && (scope === "本章" || m.shotId === shotId);
+  });
+  const localSet = new Set(localMessages);
+  const recentChat = draft.messages.filter(
+    (m, i) =>
+      m.action === "chat" &&
+      (localSet.has(m) || (writingScope(m) === "全剧" && i >= (draft.storyMemory?.through || 0))),
+  );
+  const references = referenceIdeas(draft.ideas, action, note);
   const user = JSON.stringify({
-    剧本: draft.name,
+    作者片名: draft.name !== draft.brief.slice(0, 24) ? draft.name : undefined,
     目标章数: draft.count,
     每章目标秒数: chapter?.seconds ?? draft.seconds,
-    最初创意: draft.brief,
-    最近对话: draft.messages
-      .filter((m) => !m.ideaId || m.ideaId === idea?.id)
-      .slice(-12)
-      .map(({ role, text }) => ({ role, text: text.slice(0, 4000) })),
-    候选梗概: ["ideas", "chat"].includes(action) ? draft.ideas.slice(-9).map(ideaText) : undefined,
+    作者设定: memory.premise,
+    作者历次补充: memory.additions,
+    当前选稿的作者留言: localMessages.filter(isAuthorNote).map((m) => ({
+      范围: writingScope(m),
+      原话: m.text,
+    })),
+    最近对话: recentChat.slice(-12).map(({ role, text }) => ({ role, text: text.slice(0, 4000) })),
+    供讨论或点名参考的备选: references?.length ? references : undefined,
     选定梗概: idea && ideaText(idea),
-    全剧章节: idea?.chapters.map(chapterContext),
+    全剧章节: action !== "ideas" ? idea?.chapters.map(chapterContext) : undefined,
     上章结尾: chapter && idea.chapters[idea.chapters.indexOf(chapter) - 1]?.script.slice(-1800),
-    全剧资产设定: [...otherAssets.values()].slice(0, 80),
+    全剧资产设定: action !== "ideas" ? [...otherAssets.values()].slice(0, 80) : undefined,
     当前章: chapter && {
       ...chapterContext(chapter),
       正文: chapter.script,
@@ -238,6 +312,7 @@ export function applyReply(draft, task, output) {
       ...ideaText(v),
       id: crypto.randomUUID(),
       chapters: [],
+      source: idea ? { id: idea.id, through: draft.messages.length } : undefined,
     }));
     draft.ideas.push(...created);
     return "写好了三版梗概：" + created.map((i) => "《" + i.title + "》").join("、") + "。";
@@ -257,7 +332,12 @@ export function applyReply(draft, task, output) {
       review: [],
     }));
     if (idea.chapters.length) {
-      const branch = { ...ideaText(idea), id: crypto.randomUUID(), chapters };
+      const branch = {
+        ...ideaText(idea),
+        id: crypto.randomUUID(),
+        chapters,
+        source: { id: idea.id, through: draft.messages.length },
+      };
       draft.ideas.push(branch);
       draft.selectedId = branch.id;
     } else idea.chapters = chapters;
