@@ -99,7 +99,14 @@ test("编剧对话离开后续写，手改方案贯穿章节、资产、分镜�
   });
   await page.goto(base + "#home");
   await button("剧本创作").first().click();
+  await page.setViewportSize({ width: 390, height: 800 });
+  await button("更换编剧，当前为逆袭打脸").click();
+  assert.ok(await button("逆袭打脸").evaluate((el) => el === document.activeElement));
   await button("悬疑推理").click();
+  assert.equal(await button("悬疑推理").getAttribute("aria-pressed"), "true");
+  await button("更换编剧，当前为悬疑推理").waitFor();
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByLabel("剧本名称").fill("邮局");
   await page.getByLabel("章节数").fill("2");
   await page.getByLabel("每章秒数").fill("10");

@@ -174,6 +174,20 @@ strong {
   background: #242527;
   color: #fff;
 }
+/* Keep the current workspace visible as the pointer moves through navigation. */
+.side nav button { position: relative; }
+.side nav button.chosen::before {
+  content: "";
+  position: absolute; left: 0; top: 25%; bottom: 25%; width: 2px;
+  background: #b2cfc3; border-radius: 3px;
+  animation: studio-nav-select 170ms ease-out;
+}
+@keyframes studio-nav-select { from { opacity: 0; transform: scaleY(.45); } to { opacity: 1; transform: scaleY(1); } }
+@media (hover: hover) {
+  .project-card:hover { border-color: #526159; background-color: #222725; }
+  .project-card > svg, .sample-line svg { transition: transform 180ms ease-out; }
+  .project-card:hover > svg, .sample-card:hover .sample-line svg { transform: translate(2px,-2px); }
+}
 .studio-update { margin-top: auto; }
 .studio-update + .workspace { margin-top: 0; }
 .studio-update button { width: 100%; }

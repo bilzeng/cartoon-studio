@@ -2,16 +2,18 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowUpRight,
   BookOpen,
   Check,
   ChevronRight,
+  ChevronDown,
   Clapperboard,
   Compass,
   Drama,
   Feather,
   FileText,
   Flame,
-  FolderOpen,
+  LibraryBig,
   LoaderCircle,
   MessageCircle,
   Pencil,
@@ -63,53 +65,42 @@ const limits = {
   imagePrompt: 4000,
   videoPrompt: 4000,
 };
-function Setup({ value, onChange, brief = false }) {
+function Setup({ value, onChange }) {
   const set = (key, v) => onChange({ ...value, [key]: v });
+  function styleOption(key) {
+    const { name, hint } = writers[key],
+      Icon = styleIcons[key];
+    const selected = value.style === key;
+    return (
+      <button
+        key={key}
+        type="button"
+        data-genre={key}
+        className={key === "custom" ? "wr-custom" : "wr-genre"}
+        aria-label={name}
+        aria-pressed={selected}
+        onClick={() => set("style", key)}
+      >
+        <Icon size={key === "custom" ? 14 : 18} aria-hidden="true" />
+        <span>
+          <strong>{name}</strong>
+          {key !== "custom" && <small>{hint}</small>}
+        </span>
+        {selected && <Check size={14} className="wr-tick" aria-hidden="true" />}
+      </button>
+    );
+  }
   return (
     <>
-      <div className="wr-labeled">
-        <span>选择编剧风格</span>
-        <div className="wr-styles">
-          {Object.entries(writers).map(([key, style]) => {
-            const Icon = styleIcons[key];
-            return (
-              <button
-                key={key}
-                type="button"
-                aria-pressed={value.style === key}
-                onClick={() => set("style", key)}
-              >
-                <Icon size={17} />
-                <span>{style.name}</span>
-                {value.style === key && <Check size={13} />}
-              </button>
-            );
-          })}
-        </div>
-        <small>{writers[value.style].hint}</small>
+      <div className="wr-section-heading">
+        <h2>选择编剧</h2>
+        {styleOption("custom")}
       </div>
-      <label>
-        剧本名称
-        <input
-          value={value.name}
-          maxLength={100}
-          placeholder="给这个故事起个名字"
-          onChange={(e) => set("name", e.target.value)}
-        />
-      </label>
-      {brief && (
-        <label>
-          故事创意
-          <textarea
-            rows={3}
-            required
-            maxLength={6000}
-            value={value.brief}
-            onChange={(e) => set("brief", e.target.value)}
-            placeholder="谁遇到了什么事？写下一句话，或贴进已有的故事想法…"
-          />
-        </label>
-      )}
+      <div className="wr-styles">
+        {Object.keys(writers)
+          .filter((key) => key !== "custom")
+          .map(styleOption)}
+      </div>
       <details className="wr-style-note" key={value.style} open={value.style === "custom" || undefined}>
         <summary>{value.style === "custom" ? "自定义风格提示词" : "查看与补充风格提示词"}</summary>
         {writers[value.style].prompt && <p>{writers[value.style].prompt}</p>}
@@ -122,7 +113,20 @@ function Setup({ value, onChange, brief = false }) {
           placeholder="填入自己的编剧提示词，或补充对节奏、对白、叙事方式的要求"
         />
       </details>
+      <div className="wr-section-heading wr-length-heading">
+        <h2>片名与篇幅</h2>
+        <small>全剧目标 {Number(value.count) * Number(value.seconds) || 0} 秒</small>
+      </div>
       <div className="wr-length">
+        <label>
+          剧本名称
+          <input
+            value={value.name}
+            maxLength={100}
+            placeholder="给这个故事起个名字"
+            onChange={(e) => set("name", e.target.value)}
+          />
+        </label>
         <label>
           章节数
           <input
@@ -145,7 +149,6 @@ function Setup({ value, onChange, brief = false }) {
             onChange={(e) => set("seconds", e.target.value === "" ? "" : Number(e.target.value))}
           />
         </label>
-        <small>全剧目标 {Number(value.count) * Number(value.seconds) || 0} 秒</small>
       </div>
     </>
   );
@@ -189,14 +192,16 @@ function useWriterModel() {
       }}
     />
   );
-  return { profileId, control, dialog };
+  return { profileId, loading: profiles === null && !loadError, control, dialog };
 }
 function Shelf({ go }) {
   const [items, setItems] = useState(null),
     [form, setForm] = useState(defaults),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const model = useWriterModel();
+  const model = useWriterModel(),
+    briefInput = useRef(null),
+    setup = useRef(null);
   useEffect(() => {
     api("/writing")
       .then(setItems)
@@ -204,7 +209,7 @@ function Shelf({ go }) {
   }, []);
   async function create(e) {
     e.preventDefault();
-    if (busy) return;
+    if (busy || model.loading) return;
     setBusy(true);
     setError("");
     let draft;
@@ -229,41 +234,108 @@ function Shelf({ go }) {
     }
   }
   return (
-    <div className="wr-page">
+    <div className="wr-page wr-launch">
       {model.dialog}
-      <h1>
-        <Feather size={25} />
-        剧本创作
-      </h1>
       <div className="wr-shelf">
-        <form className="wr-panel wr-form" onSubmit={create}>
-          <h2>新剧本</h2>
-          <Setup value={form} onChange={setForm} brief />
-          <div className="wr-actions">
-            {model.control}
-            <button
-              className="solid"
-              disabled={busy || !form.brief.trim() || (form.style === "custom" && !form.direction.trim())}
-            >
-              {busy ? <LoaderCircle size={15} className="wr-spin" /> : <Feather size={15} />}
-              {model.profileId ? "发送创意，生成梗概" : "保存创意草稿"}
-            </button>
-          </div>
+        <form className="wr-launch-form" onSubmit={create}>
+          <section className="wr-hero" aria-labelledby="wr-headline">
+            <div className="wr-hero-frame" aria-hidden="true">
+              <img src="/stills/operator.jpg" alt="" fetchPriority="high" />
+            </div>
+            <div className="wr-hero-inner">
+              <h1 id="wr-headline">剧本创作</h1>
+              <div className="wr-idea-box">
+                <div className="wr-idea-heading">
+                  <label htmlFor="wr-brief">你想讲一个什么故事？</label>
+                  <button
+                    type="button"
+                    className="wr-change-writer"
+                    data-genre={form.style}
+                    aria-label={"更换编剧，当前为" + writers[form.style].name}
+                    onClick={() => setup.current?.querySelector('[aria-pressed="true"]')?.focus()}
+                  >
+                    {writers[form.style].name}
+                    <ChevronDown size={13} />
+                  </button>
+                </div>
+                <textarea
+                  ref={briefInput}
+                  id="wr-brief"
+                  aria-label="故事创意"
+                  rows={2}
+                  required
+                  maxLength={6000}
+                  value={form.brief}
+                  onChange={(e) => setForm({ ...form, brief: e.target.value })}
+                  placeholder="从一个人物、一句对白，或意外发生的那一刻写起…"
+                />
+                <div className="wr-actions">
+                  {model.control}
+                  <button
+                    className="solid wr-send"
+                    disabled={
+                      busy ||
+                      model.loading ||
+                      !form.brief.trim() ||
+                      (form.style === "custom" && !form.direction.trim())
+                    }
+                  >
+                    {busy
+                      ? "正在保存创意…"
+                      : model.loading
+                        ? "读取模型…"
+                        : model.profileId
+                          ? "发送创意，生成梗概"
+                          : "保存创意草稿"}
+                    {busy ? <LoaderCircle size={16} className="wr-spin" /> : <ArrowUpRight size={16} />}
+                  </button>
+                </div>
+              </div>
+              {error && (
+                <p role="alert" className="wr-error">
+                  {error}
+                </p>
+              )}
+            </div>
+          </section>
+          <section ref={setup} className="wr-form wr-config">
+            <Setup value={form} onChange={setForm} />
+          </section>
         </form>
-        <section className="wr-panel wr-library">
-          <h2>
-            <FolderOpen size={17} />
-            我的剧本
-          </h2>
+        <section className="wr-library">
+          <div className="wr-section-heading">
+            <h2>
+              <LibraryBig size={18} />
+              我的剧本
+            </h2>
+            {!!items?.length && <small>{items.length} 部</small>}
+          </div>
           {!items ? (
-            <p>正在读取剧本…</p>
+            <p role="status">{error ? "剧本列表暂时无法读取" : "正在读取剧本…"}</p>
           ) : !items.length ? (
-            <p>创建的剧本会保存在这里，可以随时回来续写。</p>
+            <div className="wr-shelf-empty">
+              <span className="wr-empty-cover" aria-hidden="true">
+                <Feather size={26} strokeWidth={1.4} />
+              </span>
+              <strong>还没有剧本</strong>
+              <p>写下第一个创意后，可以在这里继续上次的创作。</p>
+              <button type="button" className="quiet" onClick={() => briefInput.current?.focus()}>
+                写下创意
+                <ArrowRight size={14} />
+              </button>
+            </div>
           ) : (
             items.map((d) => (
-              <button key={d.id} className="wr-book" onClick={() => go("writing/" + d.id)}>
-                <BookOpen size={19} />
-                <span>
+              <button
+                key={d.id}
+                className="wr-book"
+                data-genre={d.style}
+                onClick={() => go("writing/" + d.id)}
+              >
+                <span className="wr-cover" aria-hidden="true">
+                  <BookOpen size={17} />
+                </span>
+                <span className="wr-book-info">
                   <strong>{d.name}</strong>
                   <small>
                     {writers[d.style].name} · {d.chapters ? d.chapters + " 章" : "构思中"}
@@ -275,11 +347,6 @@ function Shelf({ go }) {
           )}
         </section>
       </div>
-      {error && (
-        <p role="alert" className="wr-error">
-          {error}
-        </p>
-      )}
     </div>
   );
 }
@@ -564,7 +631,8 @@ function Workbench({ id, go }) {
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [note, setNote] = useState(""),
-    [editing, edit] = useState(null);
+    [editing, edit] = useState(null),
+    [importing, setImporting] = useState(false);
   const path = "/writing/" + id,
     model = useWriterModel(),
     chat = useRef(null),
@@ -671,13 +739,16 @@ function Workbench({ id, go }) {
     } catch {}
   }
   async function importChapter() {
+    setImporting(true);
     try {
       const { projectId } = await request("/import", "POST", { chapterId: chapter.id });
       go("project/" + projectId);
-    } catch {}
+    } catch {
+      setImporting(false);
+    }
   }
   return (
-    <div className="wr-page">
+    <div className="wr-page wr-workspace" data-genre={draft.style}>
       {model.dialog}
       <div className="wr-breadcrumb">
         <button className="quiet" onClick={() => go("writing")}>
@@ -686,7 +757,12 @@ function Workbench({ id, go }) {
         </button>
       </div>
       <div className="wr-title">
-        <h1>{draft.name}</h1>
+        <div>
+          <h1>{draft.name}</h1>
+          <p className="wr-subtitle">
+            {writers[draft.style].name} · {draft.count} 章 · 每章 {draft.seconds} 秒
+          </p>
+        </div>
         <button
           className="outline"
           disabled={locked}
@@ -783,7 +859,14 @@ function Workbench({ id, go }) {
           </div>
         </aside>
         <section className="wr-panel wr-paper">
-          <nav aria-label="编剧创作步骤" className="wr-tabs">
+          <nav
+            aria-label="编剧创作步骤"
+            className="wr-tabs"
+            style={{
+              "--step": writingStages.findIndex(([key]) => key === stage),
+              "--steps": writingStages.length,
+            }}
+          >
             {writingStages.map(([key, l]) => (
               <button key={key} aria-current={key === stage ? "step" : undefined} onClick={() => next(key)}>
                 {l}
@@ -831,7 +914,17 @@ function Workbench({ id, go }) {
               </button>
             </div>
           )}
-          <div className="wr-pages">
+          <div className="wr-pages" key={stage + (chapter?.id || "")} data-stage={stage}>
+            {pending &&
+              (draft.task.action === stage ||
+                (stage === "shots" && draft.task.action === "shot") ||
+                (stage === "ideas" && draft.task.action === "concept")) && (
+                <div className="wr-drafting" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </div>
+              )}
             <Manuscript
               {...{ draft, stage, idea, chapter, select, edit, chooseChapter, next }}
               disabled={locked}
@@ -859,8 +952,8 @@ function Workbench({ id, go }) {
                   title={chapter.review.length ? "请先复核前序内容" : ""}
                   onClick={importChapter}
                 >
-                  <Clapperboard size={15} />
-                  导入本章到画布
+                  {importing ? <LoaderCircle size={15} className="wr-spin" /> : <Clapperboard size={15} />}
+                  {importing ? "正在导入画布…" : "导入本章到画布"}
                 </button>
               </>
             ) : (
