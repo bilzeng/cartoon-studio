@@ -102,7 +102,11 @@ test("正文或资产修改会标明后续待复核，同名资产重写继续�
     [6, 6],
   );
   assert.deepEqual(chapter.shots[0].assetIds, [assetId]);
+  draft.error = "模型服务响应超时";
+  draft.messages = [{ role: "user", action: "script", ideaId: idea.id, chapterId: chapter.id }];
   editContent(draft, { action: "script", chapterId: "chapter", value: "票夹滑落到地上。" });
+  assert.equal(draft.error, "");
+  assert.deepEqual(chapter.earlierScripts, ["旧稿"]);
   assert.deepEqual(chapter.review, ["assets", "shots"]);
   apply("assets", { assets: [{ ...assets[0], prompt: "磨损的皮票夹" }] });
   assert.equal(chapter.assets[0].id, assetId);

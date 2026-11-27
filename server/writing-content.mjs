@@ -184,6 +184,9 @@ export function editContent(draft, command) {
       chapter.earlierScripts.push(chapter.script);
     }
     chapter.script = script;
+    const last = draft.messages?.at(-1);
+    if (draft.error && last?.action === "script" && last.ideaId === draft.selectedId && last.chapterId === chapterId)
+      draft.error = "";
     mark(chapter, "assets", "shots");
     chapter.review = chapter.review.filter((s) => s !== "script");
   } else if (action === "asset") {
