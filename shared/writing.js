@@ -52,6 +52,7 @@ export const writingActions = {
   ideas: "生成三版梗概",
   concept: "修改选定梗概",
   outline: "生成章节大纲",
+  extend: "续写后续章节大纲",
   script: "扩写本章",
   assets: "整理本章资产",
   shots: "生成本章分镜",
@@ -74,13 +75,22 @@ export const takeFields = {
   videoPrompt: "分镜视频提示词",
 };
 export const activeConcept = (draft) => draft.ideas.find((idea) => idea.id === draft.selectedId);
+export const maxWritingChapters = 60;
+export function continuationRange(written, target) {
+  if (!written || written >= maxWritingChapters) return null;
+  const first = written + 1;
+  return { first, last: Math.min(maxWritingChapters, Math.max(first, target)) };
+}
+export function chapterRangeLabel({ first, last }) {
+  return "第 " + (first === last ? first : first + "–" + last) + " 章";
+}
 // Messages are already persisted. Older drafts can recover the author's notes without migration.
 export function isAuthorNote(message) {
   return message.role === "user" && (message.authored ?? message.text !== writingActions[message.action]);
 }
 export function writingScope(message) {
   if (!message.ideaId) return "全剧";
-  if (["ideas", "concept", "outline"].includes(message.action)) return "所选梗概";
+  if (["ideas", "concept", "outline", "extend"].includes(message.action)) return "所选梗概";
   if (message.shotId) return "单镜";
   return message.chapterId ? "本章" : "所选梗概";
 }

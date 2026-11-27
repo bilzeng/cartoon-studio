@@ -30,7 +30,10 @@ import { PromptModelSettings, useProfiles } from "./PromptOptimizer";
 import {
   activeConcept,
   assetFields,
+  chapterRangeLabel,
   conceptFields,
+  continuationRange,
+  maxWritingChapters,
   storyMemory,
   takeFields,
   writers,
@@ -135,7 +138,7 @@ function Setup({ value, onChange }) {
           <input
             type="number"
             min={1}
-            max={60}
+            max={maxWritingChapters}
             required
             value={value.count}
             onChange={(e) => set("count", e.target.value === "" ? "" : Number(e.target.value))}
@@ -768,7 +771,18 @@ function Workbench({ id, go }) {
     );
   const memory = storyMemory(draft);
   const locked = busy || !!pending;
-  const action = target ? "shot" : stage === "ideas" && idea && note.trim() ? "concept" : stage;
+  const written = idea?.chapters.length ?? 0;
+  const continuation = stage === "outline" && continuationRange(written, draft.count);
+  let pageCount = draft.count + " 章 × " + draft.seconds + " 秒";
+  if (stage === "ideas") pageCount = draft.ideas.length + " 个方案";
+  else if (stage === "outline" && written === maxWritingChapters)
+    pageCount = "已达 " + maxWritingChapters + " 章上限";
+  else if (stage === "outline" && written && written !== draft.count)
+    pageCount = "已有 " + written + " 章 · 目标 " + draft.count + " 章";
+  let action = stage;
+  if (target) action = "shot";
+  else if (continuation) action = "extend";
+  else if (stage === "ideas" && idea && note.trim()) action = "concept";
   const ready =
     !!model.profileId &&
     !locked &&
@@ -781,6 +795,7 @@ function Workbench({ id, go }) {
     {
       ideas: draft.ideas.length > 0 && "按当前设定再写三版",
       outline: idea?.chapters.length && "另起一版大纲",
+      extend: continuation && "续写" + chapterRangeLabel(continuation) + "大纲",
       script: chapter?.script && "重写本章剧本",
       assets: chapter?.assets.length && "更新本章资产",
       shots: chapter?.shots.length && "重写本章分镜",
@@ -937,6 +952,11 @@ function Workbench({ id, go }) {
                 按新要求再给三版
               </button>
             )}
+            {continuation && (
+              <button className="quiet" disabled={!ready} onClick={() => generate("outline")}>
+                另起一版大纲
+              </button>
+            )}
             {model.control}
             {(error || draft.error) && (
               <p role="alert" className="wr-error">
@@ -978,11 +998,7 @@ function Workbench({ id, go }) {
                 ))}
               </Select>
             ) : (
-              <small>
-                {stage === "ideas"
-                  ? draft.ideas.length + " 个方案"
-                  : draft.count + " 章 × " + draft.seconds + " 秒"}
-              </small>
+              <small>{pageCount}</small>
             )}
           </div>
           {chapter?.review.includes(stage) && (
@@ -1004,6 +1020,7 @@ function Workbench({ id, go }) {
           <div className="wr-pages" key={stage + (chapter?.id || "")} data-stage={stage}>
             {pending &&
               (draft.task.action === stage ||
+                (stage === "outline" && draft.task.action === "extend") ||
                 (stage === "shots" && draft.task.action === "shot") ||
                 (stage === "ideas" && draft.task.action === "concept")) && (
                 <div className="wr-drafting" aria-hidden="true">
@@ -1056,7 +1073,13 @@ function Workbench({ id, go }) {
                           ? chapter?.script
                           : chapter?.assets.length)
                   }
-                  onClick={() => next(writingStages[writingStages.findIndex((s) => s[0] === stage) + 1][0])}
+                  onClick={() => {
+                    if (stage === "outline") {
+                      const unwritten = idea.chapters.find((c) => !c.script);
+                      if (unwritten) chooseChapter(unwritten.id);
+                    }
+                    next(writingStages[writingStages.findIndex((s) => s[0] === stage) + 1][0]);
+                  }}
                 >
                   {
                     {

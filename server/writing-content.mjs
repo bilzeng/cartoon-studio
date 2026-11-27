@@ -2,8 +2,11 @@ import { readFileSync } from "node:fs";
 import {
   activeConcept,
   assetFields,
+  chapterRangeLabel,
   conceptFields,
+  continuationRange,
   isAuthorNote,
+  maxWritingChapters,
   writingScope,
   storyMemory,
   takeFields,
@@ -31,7 +34,7 @@ export function config(input) {
     name: string(input.name, "剧本名称", 100),
     style: input.style,
     direction: string(input.direction || "", "编剧风格提示词", 4000, input.style !== "custom"),
-    count: integer(input.count, "章节数", 1, 60),
+    count: integer(input.count, "章节数", 1, maxWritingChapters),
     seconds: integer(input.seconds, "每章目标秒数", 5, 300),
   };
 }
@@ -212,6 +215,8 @@ const formats = {
   concept: '按照修改要求仅修改选定梗概。返回 {"idea":{"title":"","hook":"","summary":"","appeal":""}}。',
   outline:
     '为选定梗概构建完整叙事弧，严格按目标章数输出。每章用一至三句写出本章的起点、值得展开的变化及其后果，按目标秒数安排事件，衔接相邻章节。返回 {"chapters":[{"title":"","summary":""}]}。',
+  extend:
+    '接着已有章节续写。以已写正文中的事件、人物所知和结尾时的情绪为准，尚未扩写的章节按大纲衔接。接住上章留下的选择或后果，让人物的下一步有可见的动机和过程。按本次续写的起止章号依序输出新增章节，每章一至三句，篇幅匹配每章目标秒数。跳过已写章节。返回 {"chapters":[{"title":"","summary":""}]}。',
   script:
     [
       "只扩写指定的一章。保留选稿的人物、事件与相邻章衔接，用场次、内外景、地点、时段、可拍到的动作和署名短对白写成剧本。",
@@ -228,6 +233,12 @@ const shotShape =
   '{"title":"","duration":5,"framing":"","visual":"","camera":"","dialogue":"","emptyCast":false,"assetIds":[],"imagePrompt":"","videoPrompt":""}';
 function chapterContext(c) {
   return { title: c.title, summary: c.summary, seconds: c.seconds };
+}
+function nextChapters(draft, idea) {
+  if (!idea?.chapters.length) throw fail("请先生成章节大纲");
+  const range = continuationRange(idea.chapters.length, draft.count);
+  if (!range) throw fail("每部剧本最多 " + maxWritingChapters + " 章");
+  return range;
 }
 function referenceIdeas(ideas, action, note) {
   if (action !== "ideas" && action !== "chat") return;
@@ -267,9 +278,10 @@ export function modelInput(draft, action, chapterId, shotId, note = "") {
   if (!Object.hasOwn(formats, action)) throw fail("未知的创作步骤");
   const { idea, chapter } = current(
     draft,
-    ["ideas", "outline", "concept"].includes(action) ? null : chapterId,
+    ["ideas", "outline", "extend", "concept"].includes(action) ? null : chapterId,
   );
   if (!["chat", "ideas"].includes(action) && !idea) throw fail("请先选定一个故事梗概");
+  const range = action === "extend" ? nextChapters(draft, idea) : null;
   if (["script", "assets", "shots", "shot"].includes(action) && !chapter) throw fail("请先选择章节");
   if (["assets", "shots", "shot"].includes(action) && !chapter.script) throw fail("请先扩写本章剧本");
   if (["shots", "shot"].includes(action) && !chapter.assets.length) throw fail("请先整理本章资产");
@@ -331,9 +343,14 @@ export function modelInput(draft, action, chapterId, shotId, note = "") {
       (localSet.has(m) || (writingScope(m) === "全剧" && i >= (draft.storyMemory?.through || 0))),
   );
   const references = referenceIdeas(draft.ideas, action, note);
+  const priorScript =
+    range && !idea.chapters.at(-1).script ? idea.chapters.findLast((c) => c.script) : undefined;
   const user = JSON.stringify({
     作者片名: draft.name !== draft.brief.slice(0, 24) ? draft.name : undefined,
-    目标章数: draft.count,
+    目标章数: range?.last ?? draft.count,
+    本次续写: range
+      ? { 起始章: range.first, 结束章: range.last, 新增章数: range.last - range.first + 1 }
+      : undefined,
     每章目标秒数: chapter?.seconds ?? draft.seconds,
     作者设定: memory.premise,
     作者历次补充: memory.additions,
@@ -345,7 +362,13 @@ export function modelInput(draft, action, chapterId, shotId, note = "") {
     供讨论或点名参考的备选: references?.length ? references : undefined,
     选定梗概: idea && ideaText(idea),
     全剧章节: action !== "ideas" ? idea?.chapters.map(chapterContext) : undefined,
-    上章结尾: chapter && idea.chapters[idea.chapters.indexOf(chapter) - 1]?.script.slice(-1800),
+    上章结尾: range
+      ? idea.chapters.at(-1).script.slice(-1800) || undefined
+      : chapter && idea.chapters[idea.chapters.indexOf(chapter) - 1]?.script.slice(-1800),
+    最近已扩写章节: priorScript && {
+      章号: idea.chapters.indexOf(priorScript) + 1,
+      结尾: priorScript.script.slice(-1800),
+    },
     全剧资产设定: action !== "ideas" ? [...otherAssets.values()].slice(0, 80) : undefined,
     当前章: chapter && {
       ...chapterContext(chapter),
@@ -380,8 +403,10 @@ export function applyReply(draft, task, output) {
     editContent(draft, { action: "idea", id: idea.id, value: result.idea });
     return "已修改《" + idea.title + "》的梗概。";
   }
-  if (action === "outline") {
-    const chapters = rows(result.chapters, "章节", draft.count, draft.count).map((v) => ({
+  if (action === "outline" || action === "extend") {
+    const range = action === "extend" ? nextChapters(draft, idea) : null;
+    const count = range ? range.last - range.first + 1 : draft.count;
+    const chapters = rows(result.chapters, "章节", count, count).map((v) => ({
       ...outlineText(v),
       id: crypto.randomUUID(),
       seconds: draft.seconds,
@@ -390,6 +415,11 @@ export function applyReply(draft, task, output) {
       shots: [],
       review: [],
     }));
+    if (range) {
+      idea.chapters.push(...chapters);
+      draft.count = range.last;
+      return "已续写" + chapterRangeLabel(range) + "大纲。";
+    }
     if (idea.chapters.length) {
       const branch = {
         ...ideaText(idea),

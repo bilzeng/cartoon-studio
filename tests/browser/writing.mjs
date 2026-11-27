@@ -53,6 +53,7 @@ test("编剧对话离开后续写，手改方案贯穿章节、资产、分镜�
         ],
       },
       扩写本章: { script: "外景　邮局　雨夜\n邮差把信交给当年的自己。" },
+      续写后续章节大纲: { chapters: [{ title: "下一班车", summary: "邮差追上了收信人。" }] },
       整理本章资产: {
         assets: [
           {
@@ -226,5 +227,19 @@ test("编剧对话离开后续写，手改方案贯穿章节、资产、分镜�
   await page.goto(draftUrl);
   await button("导入本章到画布").waitFor();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await button("章节大纲").click();
+  await button("续写第 3 章大纲").click();
+  const thirdCard = page.locator("article").filter({ has: page.getByRole("heading", { name: "下一班车" }) });
+  await thirdCard.waitFor();
+  assert.deepEqual(requests.at(-1).ctx.本次续写, { 起始章: 3, 结束章: 3, 新增章数: 1 });
+  const continued = await snapshot();
+  assert.equal(continued.selectedId, latest.selectedId);
+  assert.equal(continued.count, 3);
+  assert.deepEqual(continued.ideas[0].chapters.slice(0, 2), latest.ideas[0].chapters);
+  await thirdCard.getByRole("button", { name: "去扩写本章" }).click();
+  await button("扩写本章").click();
+  await button("编辑章节剧本").waitFor();
+  assert.equal(requests.at(-1).ctx.当前章.title, "下一班车");
+  assert.deepEqual((await snapshot()).ideas[0].chapters.slice(0, 2), latest.ideas[0].chapters);
   assert.deepEqual(errors, []);
 });

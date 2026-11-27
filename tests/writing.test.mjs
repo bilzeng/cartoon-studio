@@ -76,6 +76,46 @@ test("同一梗概重做大纲时保留已写的章节，新篇幅及自定义�
   assert.throws(() => config({ ...draft, style: "custom", direction: "" }), /风格提示词/);
 });
 
+test("单章旧稿可原地续写，调高目标后只补齐缺章，错误回复和章数上限保留原稿", () => {
+  const idea = { id: "i", title: "归途", hook: "门开了", summary: "送信回家", appeal: "谁写的信", chapters: [] };
+  const draft = {
+    ...config({ name: "归途", style: "drama", count: 1, seconds: 60 }),
+    brief: "送信回家", ideas: [idea], selectedId: idea.id, messages: [],
+  };
+  const context = () => JSON.parse(modelInput(draft, "extend").user);
+  const append = (...titles) => applyReply(draft, { action: "extend" }, JSON.stringify({
+    chapters: titles.map((title) => ({ title, summary: "跟随新线索" })),
+  }));
+  assert.throws(context, /请先生成章节大纲/);
+  applyReply(draft, { action: "outline" }, JSON.stringify({ chapters: [{ title: "站台", summary: "信已送出" }] }));
+  const first = idea.chapters[0];
+  Object.assign(first, { script: "她把信收回了口袋。", projectId: "board-1", earlierScripts: ["旧稿"] });
+  const original = structuredClone(first);
+  assert.deepEqual(context().本次续写, { 起始章: 2, 结束章: 2, 新增章数: 1 });
+  assert.equal(context().目标章数, 2);
+  assert.equal(context().上章结尾, first.script);
+  append("还信");
+  assert.equal(draft.count, 2);
+  assert.equal(draft.selectedId, idea.id);
+  assert.equal(draft.ideas.length, 1);
+  assert.deepEqual(idea.chapters[0], original);
+  assert.notEqual(idea.chapters[1].id, first.id);
+  editContent(draft, { action: "settings", value: { ...draft, count: 4, seconds: 30 } });
+  assert.deepEqual(context().本次续写, { 起始章: 3, 结束章: 4, 新增章数: 2 });
+  assert.deepEqual(context().最近已扩写章节, { 章号: 1, 结尾: first.script });
+  const before = structuredClone(draft);
+  assert.throws(() => append("车票"), /数量/);
+  assert.throws(() => append("车票", ""), /章节名/);
+  assert.deepEqual(draft, before);
+  append("车票", "重逢");
+  assert.deepEqual(idea.chapters.map((c) => c.seconds), [60, 60, 30, 30]);
+  draft.count = 60;
+  append(...Array.from({ length: 56 }, (_, i) => "后续" + (i + 5)));
+  assert.throws(context, /最多 60 章/);
+  assert.throws(() => append("多出一章"), /最多 60 章/);
+  assert.equal(idea.chapters.length, 60);
+});
+
 test("正文或资产修改会标明后续待复核，同名资产重写继续使用原引用", () => {
   const chapter = { id: "chapter", seconds: 12, script: "旧稿", assets: [], shots: [], review: [] };
   const idea = { id: "idea", chapters: [chapter] };

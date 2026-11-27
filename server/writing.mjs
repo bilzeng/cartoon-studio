@@ -127,7 +127,7 @@ export function registerWriting(api) {
   );
   api.post("/writing/:id/generate", async (req, res) => {
     const { action, profileId, note = "", revision } = req.body || {};
-    const chapterId = ["ideas", "outline", "concept"].includes(action) ? undefined : req.body.chapterId;
+    const chapterId = ["ideas", "outline", "extend", "concept"].includes(action) ? undefined : req.body.chapterId;
     const shotId = action === "chat" || action === "shot" ? req.body.shotId : undefined;
     const message = string(note, "创作要求", 6000, action !== "chat");
     const profile = (await settings()).promptModels?.find((p) => p.id === profileId);
