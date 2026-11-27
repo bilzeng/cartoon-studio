@@ -128,6 +128,7 @@ export function chapterBoard(idea, chapter) {
         framing: take.framing,
         camera: take.camera,
         dialogue: take.dialogue,
+        emptyCast: !!take.emptyCast,
         referenceIds: take.assetIds,
         imagePrompt: take.imagePrompt,
         videoPrompt: take.videoPrompt,

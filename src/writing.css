@@ -218,10 +218,15 @@
   font-size: 13px;
 }
 .wr-form textarea,
-.wr-form input,
+.wr-form input:not([type="checkbox"]),
 .wr-compose textarea {
   width: 100%;
   font-size: 14px;
+}
+.wr-form .wr-cast-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .wr-styles {
   display: grid;
@@ -647,6 +652,18 @@
 .wr-card .wr-script {
   color: #36362f;
   font: 16px/1.95 var(--wr-serif);
+}
+.wr-script-history {
+  border-top: 1px solid #c9bfa9;
+  padding-top: 12px;
+  color: #555347;
+  font-size: 13px;
+}
+.wr-script-history summary {
+  cursor: pointer;
+}
+.wr-script-history button {
+  margin: 8px 6px 0 0;
 }
 .wr-empty {
   min-height: 180px;

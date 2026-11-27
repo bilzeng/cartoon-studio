@@ -59,7 +59,10 @@ function takeText(value, chapter) {
   return {
     ...fields(value, takeFields, { title: 90, visual: 3000, imagePrompt: 4000, videoPrompt: 4000 }),
     duration: integer(value.duration, "单镜秒数", 1, 30),
-    assetIds: ids,
+    emptyCast: value.emptyCast === true,
+    assetIds: value.emptyCast === true
+      ? ids.filter((id) => chapter.assets.some((asset) => asset.id === id && asset.type !== "character"))
+      : ids,
   };
 }
 // Give the model short references, while the draft and canvas keep permanent asset IDs.
@@ -101,6 +104,41 @@ function balanceDurations(shots, seconds) {
     difference -= step;
   }
 }
+
+function timedBeats(script) {
+  const pattern = /^[ \t]*【(空镜|反应)[ ·・：:\t]*(\d+)[ \t]*秒】[ \t]*(.*)$/gmu;
+  return Array.from(script.matchAll(pattern), ([, kind, seconds, cue], index) => ({
+    id: "B" + (index + 1),
+    kind,
+    seconds: Number(seconds),
+    cue,
+  }));
+}
+
+function chapterShots(values, chapter) {
+  const beats = timedBeats(chapter.script);
+  const flexible = [];
+  let used = 0;
+  let remaining = chapter.seconds;
+  const shots = rows(values, "分镜", 1, 30).map((value) => {
+    const beat = value?.beatId ? beats[used] : undefined;
+    if (value?.beatId && beat?.id !== value.beatId) throw fail("请按正文顺序为每处留白安排一镜");
+    const shot = {
+      ...modelTake(beat ? { ...value, duration: beat.seconds, emptyCast: beat.kind === "空镜" } : value, chapter),
+      id: crypto.randomUUID(),
+    };
+    if (beat) {
+      used++;
+      remaining -= beat.seconds;
+    } else flexible.push(shot);
+    return shot;
+  });
+  if (used !== beats.length) throw fail("分镜遗漏了正文中标时的留白");
+  if (beats.length && (remaining < flexible.length || remaining > flexible.length * 30))
+    throw fail("按正文留出停顿后，其余镜头数量无法覆盖剩余时长");
+  balanceDurations(flexible, remaining);
+  return shots;
+}
 function mark(chapter, ...stages) {
   for (const stage of stages)
     if (chapter[stage]?.length && !chapter.review.includes(stage)) chapter.review.push(stage);
@@ -140,7 +178,12 @@ export function editContent(draft, command) {
     Object.assign(chapter, outlineText(value));
     mark(chapter, "script", "assets", "shots");
   } else if (action === "script") {
-    chapter.script = string(value, "剧本", 24000);
+    const script = string(value, "剧本", 24000);
+    if (chapter.script && chapter.script !== script) {
+      chapter.earlierScripts ??= [];
+      chapter.earlierScripts.push(chapter.script);
+    }
+    chapter.script = script;
     mark(chapter, "assets", "shots");
     chapter.review = chapter.review.filter((s) => s !== "script");
   } else if (action === "asset") {
@@ -162,17 +205,23 @@ const formats = {
     '在作者确定的人物关系、动机、起点和结局之内给出三种故事走向。用不同的切入场景、人物选择或叙事节奏产生差异。作者要写成长历程时，给出从起点到目标的关键选择与变化。每个方案写一个可拍的开场钩子、用三句话写清谁遇到什么和留下什么悬念，再给出核心看点及追看理由。返回 {"ideas":[{"title":"","hook":"","summary":"","appeal":""}]}。',
   concept: '按照修改要求仅修改选定梗概。返回 {"idea":{"title":"","hook":"","summary":"","appeal":""}}。',
   outline:
-    '为选定梗概构建完整叙事弧，严格按目标章数输出。每章用一至三句说明起点、转折、落点和如何衔接下一章，篇幅适合该章目标秒数。返回 {"chapters":[{"title":"","summary":""}]}。',
+    '为选定梗概构建完整叙事弧，严格按目标章数输出。每章用一至三句交代起点、人物此刻相信什么、哪件事足以改变其判断、他因此怎样选择、留下什么后果。让关键转变占得下本章秒数；篇幅紧时删次要事件，多章可把后果留到下章。跨时交代经过多久及为何要等。返回 {"chapters":[{"title":"","summary":""}]}。',
   script:
-    '只扩写指定的一章，遵循全剧提要、相邻章节、已建立的人物设定及目标时长。写场次、内外景、可拍到的行动与带说话人姓名的口语对白，让每场改变人物处境。返回 {"script":"完整多行剧本文本"}。',
+    [
+      "只扩写指定的一章。保留选稿的人物、事件与相邻章衔接，用场次、内外景、地点、时段、可拍到的动作和署名短对白写成剧本。",
+      "把关键决定之前的过程演出来。重创过后，留给人物一个仍受上件事影响的日常动作。遇到难以置信的消息，写他最初怎样解释或拒绝、亲自核验了什么、哪个具体结果使他愿意冒这一次险。证据只够试探时，人物可以仍然半信半疑。按本章处境取舍。",
+      "在情绪转折或时间流逝处，给有叙事作用的无人空镜或无言反应实际的银幕时间。单独起一行写【空镜 N秒】或【反应 N秒】和具体可见可听的内容，N 为 1 至 30 的整数。留住这几秒，不用旁白解释情绪。没有相应转折的短场景可直接推进。",
+      "辨清故事里过了多久和观众实际看了多少秒。核对地点、昼夜和事件可发生的时段；遇到营业、开市、等人、等结果等条件，场头写下一个可行时点，用前后呼应的物件、声音或光线带过等待。按目标秒数给对白、动作和留白留足时间，删去重复刺激。",
+      '返回 {"script":"完整多行剧本文本"}。',
+    ].join("\n"),
   assets:
-    '从当前章剧本提取实际出现的角色、场景和重要道具，按 type=character/scene/prop 分类。同一角色统一命名，延用前章设定。描述身份、目标及可辨识外观，场景写空间和光线，道具写材质与尺寸感。每项另写可独立生成参考图的视觉提示词，保持统一美术设定。最多24项。返回 {"assets":[{"type":"character","name":"","description":"","prompt":""}]}。',
+    '从当前章剧本提取实际出现的角色、场景和重要道具，按 type=character/scene/prop 分类。同一角色统一命名，延用前章设定。描述身份、目标及可辨识外观。保留承接情绪或时间变化的道具与场景，场景参考图只呈现空间、时段与光线，道具写材质与尺寸感。每项另写可独立生成参考图的视觉提示词，保持统一美术设定。最多24项。返回 {"assets":[{"type":"character","name":"","description":"","prompt":""}]}。',
   shots:
     "仅拆当前章。按节奏安排可拍的镜头，1至30个镜头，每镜1至30整数秒，各镜 duration 之和严格等于本章秒数。时间仅填 duration 字段，正文不重复写时间码。分镜交代景别、画面、运镜、对白或声音，引用本章已提供的资产ID。绘图提示词描述单帧构图、视觉锚点、光色和氛围；视频提示词给出起始画面、动作、运镜和声音。每条提示词可独立制作。",
-  shot: "按作者要求只改指定的一镜，保留该镜原时长和相邻镜头的连续性。使用已给的资产ID。",
+  shot: "按作者要求只改指定的一镜，保留该镜原时长和相邻镜头的连续性。延续原有空镜或反应的作用与声画关系，除非作者要求改变它。使用已给的资产ID。",
 };
 const shotShape =
-  '{"title":"","duration":5,"framing":"","visual":"","camera":"","dialogue":"","assetIds":[],"imagePrompt":"","videoPrompt":""}';
+  '{"title":"","duration":5,"framing":"","visual":"","camera":"","dialogue":"","emptyCast":false,"assetIds":[],"imagePrompt":"","videoPrompt":""}';
 function chapterContext(c) {
   return { title: c.title, summary: c.summary, seconds: c.seconds };
 }
@@ -221,6 +270,7 @@ export function modelInput(draft, action, chapterId, shotId, note = "") {
   if (["assets", "shots", "shot"].includes(action) && !chapter.script) throw fail("请先扩写本章剧本");
   if (["shots", "shot"].includes(action) && !chapter.assets.length) throw fail("请先整理本章资产");
   const target = chapter?.shots.find((s) => s.id === shotId);
+  const beats = action === "shots" ? timedBeats(chapter.script) : [];
   if (action === "shot" && !target) throw fail("请选择要修改的镜头");
   const format =
     formats[action] +
@@ -236,6 +286,10 @@ export function modelInput(draft, action, chapterId, shotId, note = "") {
     "先核对作者设定、历次作者补充和本轮要求。作者明确更正的动机、关系、起点、目标按时间以最新表述为准，未改动的事实继续有效。这些约束适用于每一个备选和后续制作。提问、试探和单镜要求只按原意及适用范围处理。",
     "未选梗概与编剧在讨论中提出的情节都属于备选。只有作者采纳或明确引用的部分可延续。即使是选稿，与作者后续明确纠正冲突的部分也须重写。编剧风格服从作者设定。",
     format,
+    ["shots", "shot"].includes(action) &&
+      "以当前章正文为拍摄依据。依原序保留余韵、验证与跨时过渡。无人空镜填 emptyCast=true，只写入画的环境、物件与原有声音，图像和视频提示词都要适合无人画面，引用仅限入画资产。无言反应把时间留在人物身上。",
+    beats.length > 0 &&
+      "当前章.留白节拍中的每一项各占一镜，按原顺序放在对应剧情位置。只在对应镜头增加 beatId 字段，原样填写 B1 等编号，duration 取该项 seconds。其余镜头分配本章剩余秒数。",
     action !== "chat" && "只输出要求的 JSON 对象。所有内容使用作者的语言。",
   ]
     .filter(Boolean)
@@ -292,6 +346,7 @@ export function modelInput(draft, action, chapterId, shotId, note = "") {
     当前章: chapter && {
       ...chapterContext(chapter),
       正文: chapter.script,
+      留白节拍: beats.length ? beats : undefined,
       资产: assets,
       现有分镜: ["shots", "shot", "chat"].includes(action) ? chapter.shots.map(existingShot) : undefined,
     },
@@ -357,16 +412,11 @@ export function applyReply(draft, task, output) {
     mark(chapter, "shots");
   }
   if (action === "shots") {
-    const shots = rows(result.shots, "分镜", 1, 30).map((v) => ({
-      ...modelTake(v, chapter),
-      id: crypto.randomUUID(),
-    }));
-    balanceDurations(shots, chapter.seconds);
-    chapter.shots = shots;
+    chapter.shots = chapterShots(result.shots, chapter);
   }
   if (action === "shot") {
     const original = chapter.shots.find((s) => s.id === shotId);
-    Object.assign(original, modelTake({ ...result.shot, duration: original.duration }, chapter));
+    Object.assign(original, modelTake({ emptyCast: original.emptyCast, ...result.shot, duration: original.duration }, chapter));
   }
   chapter.review = chapter.review.filter((s) => s !== action);
   return (

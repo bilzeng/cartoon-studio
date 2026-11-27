@@ -157,6 +157,10 @@ test("编剧对话离开后续写，手改方案贯穿章节、资产、分镜�
   await button("编辑章节剧本").click();
   await page.getByLabel("章节正文").fill("外景 邮局 雨夜\n邮差摸着旧邮戳。");
   await button("保存修改").click();
+  await page.getByText("查看旧稿（1）").click();
+  await button("第 1 稿").click();
+  assert.match(await page.getByRole("dialog").getByLabel("章节正文").inputValue(), /当年的自己/);
+  await page.keyboard.press("Escape");
   await button("进入资产设定").click();
   await button("整理本章资产").click();
   await page.getByRole("heading", { name: "邮差" }).waitFor();

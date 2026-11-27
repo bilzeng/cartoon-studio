@@ -418,11 +418,25 @@ function EditDialog({ edit, save, close, assets, busy }) {
                     onChange={(e) => set("duration", Number(e.target.value))}
                   />
                 </label>
+                <label className="wr-cast-toggle">
+                  <input
+                    type="checkbox"
+                    checked={!!value.emptyCast}
+                    onChange={(e) => {
+                      const emptyCast = e.target.checked;
+                      const assetIds = emptyCast
+                        ? assets.filter((a) => a.type !== "character" && value.assetIds.includes(a.id)).map((a) => a.id)
+                        : value.assetIds;
+                      setValue({ ...value, emptyCast, assetIds });
+                    }}
+                  />
+                  空镜（无人出场）
+                </label>
                 <label>
                   引用资产
                   <Select multiple value={value.assetIds} onValueChange={(v) => set("assetIds", v)}>
                     {assets.map((a) => (
-                      <option key={a.id} value={a.id}>
+                      <option key={a.id} value={a.id} disabled={value.emptyCast && a.type === "character"}>
                         {a.name}
                       </option>
                     ))}
@@ -552,6 +566,27 @@ function Manuscript({ draft, stage, idea, chapter, disabled, select, edit, choos
           {pen("script", { script: chapter.script }, { script: "章节正文" }, "编辑章节剧本")}
         </header>
         <p className="wr-script">{chapter.script}</p>
+        {!!chapter.earlierScripts?.length && (
+          <details className="wr-script-history" key={chapter.id}>
+            <summary>查看旧稿（{chapter.earlierScripts.length}）</summary>
+            {chapter.earlierScripts.map((script, i) => (
+              <button
+                key={i}
+                className="quiet"
+                disabled={disabled}
+                onClick={() => edit({
+                  action: "script",
+                  value: { script },
+                  fields: { script: "章节正文" },
+                  label: "查看第 " + (i + 1) + " 稿 · 保存后采用",
+                  chapterId: chapter.id,
+                })}
+              >
+                <FileText size={14} />第 {i + 1} 稿
+              </button>
+            )).reverse()}
+          </details>
+        )}
       </article>
     ) : (
       <Empty text={chapter.summary} />

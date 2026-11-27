@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { applyReply, config, editContent, modelInput } from "../server/writing-content.mjs";
-import { shotWorkflowValues } from "../shared/storyboard.js";
-import { activeConcept } from "../shared/writing.js";
+import { shotPrompt, shotWorkflowValues } from "../shared/storyboard.js";
+import { activeConcept, chapterBoard } from "../shared/writing.js";
 
 test("视频工作流采用导入镜头时长，尊重模型上限及手动覆盖值", () => {
   const model = { durationKey: "sec", controls: ["sec"], fields: [{ key: "sec", min: 1, max: 10 }] };
@@ -111,6 +111,38 @@ test("正文或资产修改会标明后续待复核，同名资产重写继续�
   assert.equal(chapter.shots.length, 2);
   editContent(draft, { action: "review", chapterId: "chapter", value: "shots" });
   assert.deepEqual(chapter.review, []);
+});
+
+test("正文中的空镜与无言反应按原时长进入画布，漏拆或错序保留已有分镜", () => {
+  const chapter = {
+    id: "c", title: "末班车", seconds: 20, summary: "他目送车离站。",
+    script: "【空镜 4秒】空站台，只听见远去的车声。\n【反应·3秒】他握紧车票。",
+    assets: [{ id: "p", type: "character", name: "乘客" }, { id: "s", type: "scene", name: "站台" }],
+    shots: [], review: [],
+  };
+  const idea = { id: "i", title: "归途", hook: "车门合上", appeal: "车上有封信", summary: "目送末班车", chapters: [chapter] };
+  const draft = { selectedId: "i", style: "drama", brief: "等车", messages: [], ideas: [idea] };
+  const { user } = modelInput(draft, "shots", chapter.id);
+  assert.deepEqual(JSON.parse(user).当前章.留白节拍.map((b) => [b.id, b.seconds]), [["B1", 4], ["B2", 3]]);
+  const take = {
+    title: "站台", duration: 5, framing: "远景", visual: "空站台", camera: "固定", dialogue: "车声",
+    assetIds: ["A1", "A2"], imagePrompt: "空站台，暮色", videoPrompt: "空站台，末班车的声音渐远",
+  };
+  const apply = (shots) => applyReply(draft, { action: "shots", chapterId: chapter.id }, JSON.stringify({ shots }));
+  apply([{ ...take, beatId: "B1" }, { ...take, beatId: "B2" }, take]);
+  assert.deepEqual(chapter.shots.map((s) => s.duration), [4, 3, 13]);
+  const board = chapterBoard(idea, chapter);
+  const [cutaway, reaction] = board.order.map((id) => board.nodes.find((n) => n.id === id));
+  assert.deepEqual(cutaway.data.referenceIds, ["s"]);
+  assert.deepEqual(reaction.data.referenceIds, ["p", "s"]);
+  board.series = { cast: "红衣乘客" };
+  assert.match(shotPrompt(board, cutaway.data), /空镜，无人出场/);
+  assert.doesNotMatch(shotPrompt(board, cutaway.data), /红衣乘客/);
+  assert.equal(board.nodes.find((n) => n.data.sourceShotId === cutaway.id).data.duration, 4);
+  const previous = chapter.shots;
+  assert.throws(() => apply([take]), /遗漏/);
+  assert.throws(() => apply([{ ...take, beatId: "B2" }]), /顺序/);
+  assert.equal(chapter.shots, previous);
 });
 
 test("旧稿的作者纠正跨轮保留，未选备选与自动回执不成为剧情依据", () => {
