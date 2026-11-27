@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { assertActionInView } from "../helpers/viewport.mjs";
 import express from "express";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -155,6 +156,12 @@ test("编剧对话离开后续写，手改方案贯穿章节、资产、分镜�
   await page.getByRole("heading", { name: "第一封" }).waitFor();
   assert.match(requests.at(-1).ctx.选定梗概.summary, /小时候折的/);
   assert.match(requests.at(-1).ctx.作者设定, /等待哥哥回家/);
+  for (const [width, height] of [[1512, 754], [1280, 720]]) {
+    await page.setViewportSize({ width, height });
+    await assertActionInView(button("续写第 3 章大纲"));
+    await assertActionInView(button("只讨论"));
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await button("去扩写本章").first().click();
   await page.getByLabel("和编剧聊聊").fill("怎么表现邮差的犹豫？");
   await button("只讨论").click();
@@ -228,10 +235,22 @@ test("编剧对话离开后续写，手改方案贯穿章节、资产、分镜�
   await button("导入本章到画布").waitFor();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await button("章节大纲").click();
+  for (const [width, height] of [[390, 800], [320, 568]]) {
+    await page.setViewportSize({ width, height });
+    await assertActionInView(button("续写第 3 章大纲"));
+    await assertActionInView(button("编剧对话"));
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  }
+  await button("编剧对话").click();
+  await page.getByLabel("和编剧聊聊").fill("承接收信人上车前的迟疑。");
+  await assertActionInView(button("返回稿件"));
+  await button("返回稿件").click();
+  await assertActionInView(button("续写第 3 章大纲"));
   await button("续写第 3 章大纲").click();
   const thirdCard = page.locator("article").filter({ has: page.getByRole("heading", { name: "下一班车" }) });
   await thirdCard.waitFor();
   assert.deepEqual(requests.at(-1).ctx.本次续写, { 起始章: 3, 结束章: 3, 新增章数: 1 });
+  assert.equal(requests.at(-1).ctx.作者要求, "承接收信人上车前的迟疑。");
   const continued = await snapshot();
   assert.equal(continued.selectedId, latest.selectedId);
   assert.equal(continued.count, 3);

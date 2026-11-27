@@ -158,8 +158,14 @@ export function studioApi() {
     res.sendFile(
       await assetPath(asset),
       { maxAge: "1y", immutable: true, dotfiles: "allow" },
-      (e) => {
-        if (e) next(e);
+      (err) => {
+        if (!err) return;
+        // Discard the transport error when a viewer stops reading a media stream.
+        if (["ECONNABORTED", "ECONNRESET", "EPIPE"].includes(err.code)) {
+          res.destroy();
+          return;
+        }
+        next(err);
       },
     );
   });
@@ -981,7 +987,9 @@ export function studioApi() {
     );
   });
   api.use((_req, res) => res.status(404).json({ error: "接口不存在" }));
-  app.use((err, _req, res, _next) =>
+  app.use((err, req, res, next) => {
+    if (req.aborted || res.destroyed) return;
+    if (res.headersSent) return next(err);
     res.status(err.status || 500).json({
       error:
         err.status === 413
@@ -989,7 +997,7 @@ export function studioApi() {
           : err.status
             ? err.message
             : "服务暂时无法处理请求",
-    }),
-  );
+    });
+  });
   return app;
 }

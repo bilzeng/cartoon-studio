@@ -155,9 +155,6 @@ html:has(.flow-workspace) {
     transform: translate(9%, -3%) rotate(8deg);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .tile-generation::before { animation: none; }
-}
 .flow-tile-face p {
   color: #d0d0d0;
   align-self: start;
@@ -684,17 +681,16 @@ html:has(.flow-workspace) {
   .flow-utilities {
     bottom: 51px;
   }
-  .flow-utilities button:nth-child(3),
-  .flow-utilities button:nth-child(4),
-  .flow-utilities button:nth-child(5) {
-    display: none;
-  }
   .flow-top-right {
     right: 5px;
   }
-  .flow-top-right .flow-bar button:first-child {
-    display: none;
-  }
+  .flow-utilities button { min-width: 32px; height: 32px; }
+  .flow-bar button { min-width: 28px; height: 30px; }
+}
+@media (max-width: 450px) {
+  .flow-top-right { top: 51px; }
+  .flow-dock { max-width: calc(100% - 12px); }
+  .flow-dock button { min-width: 25px; }
 }
 
 .composer-pop .mark-surface {

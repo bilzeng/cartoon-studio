@@ -1,3 +1,4 @@
+import { assertActionInView } from "../helpers/viewport.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -115,6 +116,12 @@ test("导演台跨轨框选、成组移动及删除，一步撤销与重做，�
     if (process.env.DIRECTOR_EDIT_QA && width===1450) await page.screenshot({path:path.join(process.env.DIRECTOR_EDIT_QA,"vision-grid.png")});
   }
   await button("取消").click();
+  for (const width of [820, 390, 320]) {
+    await page.setViewportSize({ width, height: 620 });
+    for (const label of ["动画时间轴", "运镜", "截图到画布", "构图出片", "导出视频到画布"]) {
+      await assertActionInView(button(label));
+    }
+  }
   assert.ok(await page.locator(".director-stage").evaluate(el=>el.scrollWidth<=innerWidth));
   assert.deepEqual(errors,[]);
 });

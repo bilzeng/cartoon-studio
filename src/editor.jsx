@@ -447,6 +447,7 @@ function Workspace({ route, assets, refresh, notify, home }) {
           <div className="edit-tools">
             <div className="seg">
               <button
+                aria-pressed={mode === "canvas"}
                 className={mode === "canvas" ? "on" : ""}
                 onClick={() => setMode("canvas")}
               >
@@ -454,6 +455,7 @@ function Workspace({ route, assets, refresh, notify, home }) {
                 画布
               </button>
               <button
+                aria-pressed={mode === "sheet"}
                 className={mode === "sheet" ? "on" : ""}
                 onClick={() => setMode("sheet")}
               >
@@ -461,6 +463,7 @@ function Workspace({ route, assets, refresh, notify, home }) {
                 分镜表
               </button>
               <button
+                aria-pressed={mode === "timeline"}
                 className={mode === "timeline" ? "on" : ""}
                 onClick={() => setMode("timeline")}
               >

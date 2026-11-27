@@ -76,7 +76,7 @@ export function EnvironmentSettings({ close, notify }) {
     );
   return (
     <Modal title="ComfyUI 环境" close={close}>
-      <form className="env-form" onSubmit={submit}>
+      <form className="env-form" id="studio-environment-form" onSubmit={submit}>
         {config && (
           <label>
             已保存的环境
@@ -145,15 +145,17 @@ export function EnvironmentSettings({ close, notify }) {
           />
         </label>
         {error && <p role="alert">{error}</p>}
-        <button className="solid" disabled={!config || busy}>
+      </form>
+      <footer className="env-actions">
+        {config && (
+          <button type="button" className="outline" onClick={() => showImport(true)}>
+            为当前环境导入工作流…
+          </button>
+        )}
+        <button form="studio-environment-form" type="submit" className="solid" disabled={!config || busy}>
           {busy ? "正在测试连接…" : "测试并切换"}
         </button>
-      </form>
-      {config && (
-        <button className="outline import-workflow" onClick={() => showImport(true)}>
-          为当前环境导入工作流…
-        </button>
-      )}
+      </footer>
     </Modal>
   );
 }

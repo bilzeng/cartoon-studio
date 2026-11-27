@@ -4,21 +4,21 @@
   background: #141516;
   color-scheme: dark;
   font-synthesis: none;
-  --surface: #1c1d1f;
-  --line: #303236;
+  --surface: #1d2221;
+  --line: #38413d;
   --sub: #a0a4aa;
-  --accent: #a8e3e4;
-  --button-radius: 5px;
-  --button-face: #2b2d2f;
-  --button-line: #484a4c;
-  --button-hover: #37393b;
-  --button-pressed: #414345;
+  --accent: #a9e7c9;
+  --button-radius: 7px;
+  --button-face: #2b3330;
+  --button-line: #536059;
+  --button-hover: #38443e;
+  --button-pressed: #344f43;
   --button-ink: #e6e6e3;
   --button-muted: #bbbcb9;
-  --button-primary: #e7e6e1;
-  --button-on-primary: #20211f;
+  --button-primary: #ade7c9;
+  --button-on-primary: #102c20;
   --button-danger: #edaaa2;
-  --button-focus: #b8cbdb;
+  --button-focus: #b1edcf;
 }
 * {
   box-sizing: border-box;
@@ -501,8 +501,8 @@ strong {
   background: var(--button-primary);
   font-weight: 600;
 }
-.solid:hover:not(:disabled) { background: #f7f6f1; }
-.solid:active:not(:disabled) { background: #cccac3; }
+.solid:hover:not(:disabled) { background: #c6f4dc; }
+.solid:active:not(:disabled) { background: #91cfae; }
 .outline, .ico {
   background: var(--button-face);
   border-color: var(--button-line);
@@ -1372,9 +1372,11 @@ strong {
   .head-actions .ico {
     padding: 5px;
   }
-  .head-actions .ico[title="使用指南"] {
-    display: none;
-  }
+  .edit-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 8px; }
+  .edit-head .board-name { max-width: 100%; }
+  .head-actions { grid-column: 1/-1; justify-content: flex-end; }
+  .head-actions .ico { min-width: 32px; }
+  .edit-head .board-name { overflow: hidden; white-space: nowrap; }
   .head-actions .solid {
     font-size: 11px;
     padding: 7px;

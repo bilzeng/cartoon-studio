@@ -512,13 +512,21 @@ export default function DirectorStage({ node, board, assets, editStage:writeStag
         setMarkers([{track:id,frame}]); setError("");
       }}
       markers={markers} pick={setMarkers} editKeys={changeKeys} duration={duration} close={toggleTimeline} />}
-    <footer className="ds-footer"><button className="ds-time-open" aria-pressed={timeline} onClick={toggleTimeline}><ListVideo size={16}/>动画时间轴</button><button className="ds-time-open" aria-pressed={walkMode} onClick={openWalk}><Footprints size={15}/>走位</button><button className="ds-time-open" onClick={openMotion}><Route size={15}/>运镜</button><span className="ds-hint">{timeline ? "拖框多选 · Delete 删除" : view === "director" ? "拖动空白处环绕 · 滚轮缩放" : "当前机位取景"}</span>
+    <footer className="ds-footer">
+      <div className="ds-film-tools">
+        <button className="ds-time-open" aria-pressed={timeline} onClick={toggleTimeline}><ListVideo size={16}/>动画时间轴</button>
+        <button className="ds-time-open" aria-pressed={walkMode} onClick={openWalk}><Footprints size={15}/>走位</button>
+        <button className="ds-time-open" onClick={openMotion}><Route size={15}/>运镜</button>
+      </div>
+      <span className="ds-hint">{timeline ? "拖框多选 · Delete 删除" : view === "director" ? "拖动空白处环绕 · 滚轮缩放" : "当前机位取景"}</span>
       <div className="ds-frame-options"><Video size={15} /><Select aria-label="取景机位" value={stage.cameraId} onValueChange={id => { setPlaying(false); choose(id); if (timeline) editStage(s => cutCamera(s,id,frame)); setView("camera"); }}>
         {cameras.map(o => <option value={o.id} key={o.id}>{o.name || "未命名机位"}</option>)}</Select><i />{ratioSelect}</div>
       <span className="ds-feedback" role="status">{feedback}</span>
-      <button className="ds-capture" disabled={!ready || busy} onClick={() => take()}><Camera size={16} />{busy ? "处理中…" : "截图到画布"}</button>
-      <button className="ds-compose-open" disabled={!ready || busy} onClick={() => take(true)}><Aperture size={16}/>构图出片</button>
-      <button className="ds-capture ds-export-open" disabled={!ready || busy} onClick={() => { setPlaying(false); setWalkMode(false); setExportOpen(true); }}><Film size={16}/>导出视频到画布</button>
+      <div className="ds-delivery">
+        <button className="ds-capture" disabled={!ready || busy} onClick={() => take()}><Camera size={16} />{busy ? "处理中…" : "截图到画布"}</button>
+        <button className="ds-compose-open" disabled={!ready || busy} onClick={() => take(true)}><Aperture size={16}/>构图出片</button>
+        <button className="ds-capture ds-export-open" disabled={!ready || busy} onClick={() => { setPlaying(false); setWalkMode(false); setExportOpen(true); }}><Film size={16}/>导出视频到画布</button>
+      </div>
     </footer>
     {exportOpen && <StageExport stage={base} targets={board.nodes.filter(n => n.data.kind === "video")} viewport={viewport} flush={flush}
       save={(blob,target,receipt) => captureVideo(node.id,blob,target,receipt)} close={() => setExportOpen(false)}/>}

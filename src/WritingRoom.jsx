@@ -1,8 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft,
   ArrowRight,
   ArrowUpRight,
+  PanelsTopLeft,
+  ListTree,
+  Layers3,
+  Plus,
   BookOpen,
   Check,
   ChevronRight,
@@ -53,6 +56,7 @@ const styleIcons = {
   custom: Pencil,
 };
 const defaults = { name: "", style: "reversal", direction: "", count: 1, seconds: 60, brief: "" };
+const stageIcons = { ideas: BookOpen, outline: ListTree, script: FileText, assets: Layers3, shots: Clapperboard };
 const limits = {
   premise: 32000,
   title: 80,
@@ -469,8 +473,8 @@ function EditDialog({ edit, save, close, assets, busy }) {
 }
 function EditButton({ label, onClick, disabled }) {
   return (
-    <button className="quiet" title={label} aria-label={label} onClick={onClick} disabled={disabled}>
-      <Pencil size={14} />
+    <button className="quiet wr-edit" title={label} aria-label={label} onClick={onClick} disabled={disabled}>
+      <Pencil size={13} /> 编辑
     </button>
   );
 }
@@ -686,6 +690,7 @@ function Workbench({ id, go }) {
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [note, setNote] = useState(""),
+    [showChat, setShowChat] = useState(false),
     [editing, edit] = useState(null),
     [importing, setImporting] = useState(false);
   const path = "/writing/" + id,
@@ -720,13 +725,14 @@ function Workbench({ id, go }) {
   }, [path, pending]);
   useEffect(() => {
     if (chat.current) chat.current.scrollTop = chat.current.scrollHeight;
-  }, [draft?.messages.length, pending]);
+  }, [draft?.messages.length, pending, showChat]);
   const idea = draft && activeConcept(draft),
     chapter = idea?.chapters.find((c) => c.id === chapterId) || idea?.chapters[0];
   const target = stage === "shots" && chapter?.shots.find((s) => s.id === shotId);
   function next(value) {
     setStage(value);
     setShot("");
+    setShowChat(false);
   }
   async function request(suffix, method, payload) {
     setBusy(true);
@@ -757,15 +763,12 @@ function Workbench({ id, go }) {
       });
       setNote("");
       setShot("");
+      if (action !== "chat") setShowChat(false);
     } catch {}
   }
   if (!draft)
     return (
       <div className="wr-page">
-        <button className="quiet" onClick={() => go("writing")}>
-          <ArrowLeft size={15} />
-          我的剧本
-        </button>
         <p role="status">{error || "正在读取剧本…"}</p>
       </div>
     );
@@ -819,15 +822,9 @@ function Workbench({ id, go }) {
   return (
     <div className="wr-page wr-workspace" data-genre={draft.style}>
       {model.dialog}
-      <div className="wr-breadcrumb">
-        <button className="quiet" onClick={() => go("writing")}>
-          <ArrowLeft size={14} />
-          我的剧本
-        </button>
-      </div>
       <div className="wr-title">
         <div>
-          <h1>{draft.name}</h1>
+          <h1 title={draft.name}>{draft.name}</h1>
           <p className="wr-subtitle">
             {writers[draft.style].name} · {draft.count} 章 · 每章 {draft.seconds} 秒
           </p>
@@ -853,8 +850,170 @@ function Workbench({ id, go }) {
           创作设置
         </button>
       </div>
-      <div className="wr-desk">
-        <aside className="wr-panel wr-chat">
+      <nav
+        aria-label="编剧创作步骤"
+        className="wr-tabs"
+      >
+        {writingStages.map(([key, name]) => {
+          const Icon = stageIcons[key];
+          return (
+            <button key={key} aria-current={key === stage ? "step" : undefined} onClick={() => next(key)}>
+              <Icon size={16} aria-hidden="true" />{name}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="wr-desk" data-chat={showChat || undefined}>
+        <div className="wr-tools">
+          <div className="wr-sheet-head">
+            <div className="wr-sheet-info">
+              <h2>{writingStages.find((s) => s[0] === stage)[1]}</h2>
+              {["script", "assets", "shots"].includes(stage) && idea?.chapters.length > 0 ? (
+                <Select
+                  aria-label="当前章节"
+                  value={chapter.id}
+                  onValueChange={(v) => {
+                    chooseChapter(v);
+                    setShot("");
+                  }}
+                >
+                  {idea.chapters.map((c, i) => (
+                    <option key={c.id} value={c.id}>
+                      第 {i + 1} 章 · {c.title}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <small>{pageCount}</small>
+              )}
+            </div>
+            <div className="wr-stage-actions">
+              <button className="outline wr-chat-toggle" aria-expanded={showChat} aria-controls="wr-dialogue"
+                onClick={() => setShowChat(!showChat)}>
+                {showChat ? <PanelsTopLeft size={16} /> : <MessageCircle size={16} />}
+                {showChat ? "返回稿件" : "编剧对话"}
+              </button>
+              <button className="solid wr-primary" disabled={!ready || (target && !note.trim())}
+                onClick={() => generate(action)}>
+                {pending && draft.task.action === action ? <LoaderCircle size={16} className="wr-spin" />
+                  : action === "extend" ? <Plus size={16} /> : <Feather size={16} />}
+                {pending && draft.task.action === action ? "正在" + writingActions[action] + "…" : label}
+              </button>
+            </div>
+          </div>
+          {(error || draft.error) && (
+            <p role="alert" className="wr-error">
+              {error || draft.error}
+            </p>
+          )}
+        </div>
+        <section className="wr-panel wr-paper">
+          {chapter?.review.includes(stage) && (
+            <div className="wr-review">
+              上一步有修改，请复核本页内容。
+              <button
+                className="outline"
+                disabled={locked}
+                onClick={() =>
+                  request("", "PATCH", { action: "review", chapterId: chapter.id, value: stage }).catch(
+                    () => {},
+                  )
+                }
+              >
+                已复核
+              </button>
+            </div>
+          )}
+          <div className="wr-pages" key={stage + (chapter?.id || "")} data-stage={stage}>
+            {pending &&
+              (draft.task.action === stage ||
+                (stage === "outline" && draft.task.action === "extend") ||
+                (stage === "shots" && draft.task.action === "shot") ||
+                (stage === "ideas" && draft.task.action === "concept")) && (
+                <div className="wr-drafting" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </div>
+              )}
+            <Manuscript
+              {...{ draft, stage, idea, chapter, select, edit, chooseChapter, next }}
+              disabled={locked}
+              focusShot={(id) => {
+                setShot(id);
+                setShowChat(true);
+                requestAnimationFrame(() => composer.current?.focus());
+              }}
+            />
+          </div>
+          <footer className="wr-paper-footer">
+            {action === "concept" && (
+              <button className="quiet" disabled={!ready} onClick={() => generate("ideas")}>
+                按新要求再给三版
+              </button>
+            )}
+            {continuation && (
+              <button className="quiet" disabled={!ready} onClick={() => generate("outline")}>
+                另起一版大纲
+              </button>
+            )}
+            {stage === "shots" && chapter?.shots.length ? (
+              <>
+                <small>
+                  {chapter.shots.length} 镜 · {chapter.shots.reduce((t, s) => t + s.duration, 0)} /{" "}
+                  {chapter.seconds} 秒
+                </small>
+                {chapter.projectId && (
+                  <button className="quiet" onClick={() => go("project/" + chapter.projectId)}>
+                    上次画布
+                  </button>
+                )}
+                <button
+                  className="solid"
+                  disabled={locked || !!chapter.review.length}
+                  title={chapter.review.length ? "请先复核前序内容" : ""}
+                  onClick={importChapter}
+                >
+                  {importing ? <LoaderCircle size={15} className="wr-spin" /> : <Clapperboard size={15} />}
+                  {importing ? "正在导入画布…" : "导入本章到画布"}
+                </button>
+              </>
+            ) : (
+              stage !== "shots" && (
+                <button
+                  className="outline"
+                  disabled={
+                    !(stage === "ideas"
+                      ? idea
+                      : stage === "outline"
+                        ? idea?.chapters.length
+                        : stage === "script"
+                          ? chapter?.script
+                          : chapter?.assets.length)
+                  }
+                  onClick={() => {
+                    if (stage === "outline") {
+                      const unwritten = idea.chapters.find((c) => !c.script);
+                      if (unwritten) chooseChapter(unwritten.id);
+                    }
+                    next(writingStages[writingStages.findIndex((s) => s[0] === stage) + 1][0]);
+                  }}
+                >
+                  {
+                    {
+                      ideas: "查看章节大纲",
+                      outline: "进入章节剧本",
+                      script: "进入资产设定",
+                      assets: "进入分镜表",
+                    }[stage]
+                  }
+                  <ArrowRight size={14} />
+                </button>
+              )
+            )}
+          </footer>
+        </section>
+        <aside className="wr-panel wr-chat" id="wr-dialogue">
           <h2>
             <Feather size={17} />
             {writers[draft.style].name}编剧
@@ -923,13 +1082,14 @@ function Workbench({ id, go }) {
             <textarea
               id="wr-note"
               ref={composer}
-              rows={4}
+              rows={2}
               maxLength={6000}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="说说故事想法，或告诉编剧这一步想怎么改…"
+              placeholder="写下本次创作要求，或和编剧讨论…"
             />
-            <div className="wr-buttons">
+            <div className="wr-chat-actions">
+              {model.control}
               <button
                 className="outline"
                 disabled={locked || !note.trim() || !model.profileId}
@@ -938,163 +1098,9 @@ function Workbench({ id, go }) {
                 <MessageCircle size={14} />
                 只讨论
               </button>
-              <button
-                className="solid"
-                disabled={!ready || (target && !note.trim())}
-                onClick={() => generate(action)}
-              >
-                <Send size={14} />
-                {label}
-              </button>
             </div>
-            {action === "concept" && (
-              <button className="quiet" disabled={!ready} onClick={() => generate("ideas")}>
-                按新要求再给三版
-              </button>
-            )}
-            {continuation && (
-              <button className="quiet" disabled={!ready} onClick={() => generate("outline")}>
-                另起一版大纲
-              </button>
-            )}
-            {model.control}
-            {(error || draft.error) && (
-              <p role="alert" className="wr-error">
-                {error || draft.error}
-              </p>
-            )}
           </div>
         </aside>
-        <section className="wr-panel wr-paper">
-          <nav
-            aria-label="编剧创作步骤"
-            className="wr-tabs"
-            style={{
-              "--step": writingStages.findIndex(([key]) => key === stage),
-              "--steps": writingStages.length,
-            }}
-          >
-            {writingStages.map(([key, l]) => (
-              <button key={key} aria-current={key === stage ? "step" : undefined} onClick={() => next(key)}>
-                {l}
-              </button>
-            ))}
-          </nav>
-          <div className="wr-sheet-head">
-            <h2>{writingStages.find((s) => s[0] === stage)[1]}</h2>
-            {["script", "assets", "shots"].includes(stage) && idea?.chapters.length > 0 ? (
-              <Select
-                aria-label="当前章节"
-                value={chapter.id}
-                onValueChange={(v) => {
-                  chooseChapter(v);
-                  setShot("");
-                }}
-              >
-                {idea.chapters.map((c, i) => (
-                  <option key={c.id} value={c.id}>
-                    第 {i + 1} 章 · {c.title}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <small>{pageCount}</small>
-            )}
-          </div>
-          {chapter?.review.includes(stage) && (
-            <div className="wr-review">
-              上一步有修改，请复核本页内容。
-              <button
-                className="outline"
-                disabled={locked}
-                onClick={() =>
-                  request("", "PATCH", { action: "review", chapterId: chapter.id, value: stage }).catch(
-                    () => {},
-                  )
-                }
-              >
-                已复核
-              </button>
-            </div>
-          )}
-          <div className="wr-pages" key={stage + (chapter?.id || "")} data-stage={stage}>
-            {pending &&
-              (draft.task.action === stage ||
-                (stage === "outline" && draft.task.action === "extend") ||
-                (stage === "shots" && draft.task.action === "shot") ||
-                (stage === "ideas" && draft.task.action === "concept")) && (
-                <div className="wr-drafting" aria-hidden="true">
-                  <i />
-                  <i />
-                  <i />
-                </div>
-              )}
-            <Manuscript
-              {...{ draft, stage, idea, chapter, select, edit, chooseChapter, next }}
-              disabled={locked}
-              focusShot={(id) => {
-                setShot(id);
-                composer.current?.focus();
-              }}
-            />
-          </div>
-          <footer className="wr-paper-footer">
-            {stage === "shots" && chapter?.shots.length ? (
-              <>
-                <small>
-                  {chapter.shots.length} 镜 · {chapter.shots.reduce((t, s) => t + s.duration, 0)} /{" "}
-                  {chapter.seconds} 秒
-                </small>
-                {chapter.projectId && (
-                  <button className="quiet" onClick={() => go("project/" + chapter.projectId)}>
-                    上次画布
-                  </button>
-                )}
-                <button
-                  className="solid"
-                  disabled={locked || !!chapter.review.length}
-                  title={chapter.review.length ? "请先复核前序内容" : ""}
-                  onClick={importChapter}
-                >
-                  {importing ? <LoaderCircle size={15} className="wr-spin" /> : <Clapperboard size={15} />}
-                  {importing ? "正在导入画布…" : "导入本章到画布"}
-                </button>
-              </>
-            ) : (
-              stage !== "shots" && (
-                <button
-                  className="outline"
-                  disabled={
-                    !(stage === "ideas"
-                      ? idea
-                      : stage === "outline"
-                        ? idea?.chapters.length
-                        : stage === "script"
-                          ? chapter?.script
-                          : chapter?.assets.length)
-                  }
-                  onClick={() => {
-                    if (stage === "outline") {
-                      const unwritten = idea.chapters.find((c) => !c.script);
-                      if (unwritten) chooseChapter(unwritten.id);
-                    }
-                    next(writingStages[writingStages.findIndex((s) => s[0] === stage) + 1][0]);
-                  }}
-                >
-                  {
-                    {
-                      ideas: "查看章节大纲",
-                      outline: "进入章节剧本",
-                      script: "进入资产设定",
-                      assets: "进入分镜表",
-                    }[stage]
-                  }
-                  <ArrowRight size={14} />
-                </button>
-              )
-            )}
-          </footer>
-        </section>
       </div>
       {editing && (
         <EditDialog

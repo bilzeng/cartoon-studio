@@ -432,7 +432,7 @@ function AssetGroup({ id, data }) {
   );
 }
 const types = { studio: Tile, assetGroup: AssetGroup };
-function IconButton({ icon: Icon, label, active, onClick, disabled }) {
+function IconButton({ icon: Icon, label, caption, active, onClick, disabled }) {
   return (
     <button
       title={label}
@@ -442,6 +442,7 @@ function IconButton({ icon: Icon, label, active, onClick, disabled }) {
       onClick={onClick}
     >
       <Icon size={17} />
+      {caption && <span className="flow-caption">{caption}</span>}
     </button>
   );
 }
@@ -1431,16 +1432,19 @@ export function FlowCanvas({
           <IconButton
             active
             label="工作流画布"
+            caption="画布"
             icon={Waypoints}
             onClick={() => setMode("canvas")}
           />
           <IconButton
             label="分镜表"
+            caption="分镜表"
             icon={ListVideo}
             onClick={() => setMode("sheet")}
           />
           <IconButton
             label="分镜台"
+            caption="分镜台"
             icon={Clapperboard}
             onClick={() => setMode("timeline")}
           />
@@ -1459,7 +1463,7 @@ export function FlowCanvas({
             label="下载画布 JSON"
             onClick={download}
           />
-          <button onClick={() => open("export")}>
+          <button className="flow-export" onClick={() => open("export")}>
             <Film size={15} />
             导出
           </button>

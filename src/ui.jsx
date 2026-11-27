@@ -140,6 +140,16 @@ export function AssetPreview({ asset, assets = [], projectId, label = asset.name
 export function Modal({ title, children, close, wide = false }) {
   const ref = useRef(null);
   const heading = useId();
+  function dismiss() {
+    const el = ref.current;
+    if (!el || el.dataset.closing) return;
+    el.dataset.closing = "true";
+    const fade = el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 110, easing: "ease-in" });
+    fade.finished.then(() => {
+      delete el.dataset.closing;
+      if (el.open && el.isConnected) close();
+    }, () => { delete el.dataset.closing; });
+  }
   useLayoutEffect(() => {
     const el = ref.current;
     el.showModal();
@@ -152,16 +162,16 @@ export function Modal({ title, children, close, wide = false }) {
       ref={ref}
       onCancel={(e) => {
         e.preventDefault();
-        close();
+        dismiss();
       }}
       onClick={(e) => {
-        if (e.target === ref.current) close();
+        if (e.target === ref.current) dismiss();
       }}
     >
       <section>
         <header>
           <h2 id={heading}>{title}</h2>
-          <button className="ico" aria-label="关闭" onClick={close}>
+          <button className="ico" aria-label="关闭" onClick={dismiss}>
             <X size={20} />
           </button>
         </header>

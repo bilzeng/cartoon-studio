@@ -3,7 +3,7 @@ import { queueLabel } from "../shared/job-timing";
 import { CancelGeneration } from "./CancelGeneration";
 import { RecoverGeneration } from "./RecoverGeneration";
 import React, { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Clock3, Download, FolderOpen, LoaderCircle, Star, Upload } from "lucide-react";
+import { Ban, CircleAlert, CircleCheck, ChevronLeft, ChevronRight, Clock3, Download, FolderOpen, LoaderCircle, Star, Upload } from "lucide-react";
 import { api, uploadAsset } from "./client";
 import { AssetPreview, Media } from "./ui";
 import { AssetTagEditor } from "./AssetTagEditor";
@@ -362,10 +362,11 @@ export function Jobs({ rows, assets, onUse, onApply, onTake, refresh, notify }) 
                   }[j.type]
                 }
               </strong>
-              <span className={"status " + j.status}>
-                {j.status === "running" && (
-                  <LoaderCircle className="spin" size={13} />
-                )}
+              <span key={j.status} className={"status " + j.status}>
+                {j.status === "running" && <LoaderCircle className="spin" size={13} />}
+                {j.status === "done" && <CircleCheck size={13} />}
+                {j.status === "failed" && <CircleAlert size={13} />}
+                {j.status === "cancelled" && <Ban size={13} />}
                 {
                   queueLabel(j) || { running: "处理中", done: j.recovered ? "已取回" : "已完成", failed: j.canRecover ? "可重连" : "失败", cancelled: "已取消" }[
                     j.status

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { assertActionInView } from "../helpers/viewport.mjs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -48,4 +49,23 @@ test("首页新建入口保持整行宽度，动效和键盘操作独立于系�
   await name.fill("首页画布");
   await name.press("Enter");
   await page.waitForURL("**/#project/**");
+  await page.setViewportSize({ width: 390, height: 680 });
+  const button = name => page.getByRole("button", { name, exact: true });
+  for (const label of ["小地图", "显示连线", "网格吸附", "ComfyUI 环境", "导出"]) {
+    await assertActionInView(button(label));
+  }
+  await button("返回首页").click();
+  await button("打开导航").click();
+  await button("资产").click();
+  await assertActionInView(button("导入素材"));
+  await button("打开导航").click();
+  await button("ComfyUI 环境").click();
+  const save = button("测试并切换");
+  await assertActionInView(save);
+  await page.getByLabel("生成尺寸最长边（像素）").scrollIntoViewIfNeeded();
+  await assertActionInView(save);
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  assert.equal(await button("打开导航").getAttribute("aria-expanded"), "false");
+  assert.ok(await button("打开导航").evaluate(el => el === document.activeElement));
 });

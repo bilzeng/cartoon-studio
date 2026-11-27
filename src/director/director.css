@@ -343,3 +343,21 @@ dialog.director-stage[data-timeline=true] { grid-template-rows:50px minmax(0,1fr
 
 .director-stage .ds-audition { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; margin-top:8px; padding:5px; font-size:12px; border:1px solid var(--ds-line); }
 .ds-audition[aria-pressed=true] { color:#c9eee1; background:#344c44; }
+
+.ds-film-tools, .ds-delivery { display:flex; align-items:center; gap:6px; min-width:0; }
+@media (max-width: 820px) {
+  dialog.director-stage[open] { grid-template-columns: minmax(0,1fr); grid-template-rows: 48px minmax(0,1fr) auto; }
+  dialog.director-stage[open][data-timeline=true] { grid-template-rows: 48px minmax(0,1fr) auto auto; }
+  .director-stage .ds-footer { display:grid; grid-template-columns:auto minmax(0,1fr); gap:5px 8px; padding:6px 8px; }
+  .ds-frame-options { justify-self:end; min-width:0; max-width:100%; }
+  .ds-frame-options .studio-select { min-width:0; overflow:hidden; }
+  .ds-frame-options .studio-select span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ds-delivery { grid-column:1/-1; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.35fr); }
+  .ds-delivery button { justify-content:center; }
+  .director-stage .ds-delivery button { padding:0 4px; }
+  .ds-delivery button svg { flex-shrink:0; }
+}
+@media (max-width: 370px) {
+  .ds-header > i, .ds-header > svg { display:none; }
+  .director-stage .ds-delivery button { font-size:12px; gap:3px; }
+}

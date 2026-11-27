@@ -3,6 +3,7 @@ import { EnvironmentSettings } from "./EnvironmentSettings";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
+  ArrowLeft,
   ArrowRight,
   BookOpen,
   Boxes,
@@ -93,6 +94,7 @@ export function App() {
   useEffect(() => {
     const change = () => {
       setRoute(location.hash.slice(1) || "home");
+      window.scrollTo({ top: 0, behavior: "instant" });
       setMenu(false);
       setSearch("");
       setDialog("");
@@ -100,9 +102,26 @@ export function App() {
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);
   }, []);
+  useEffect(() => {
+    if (!menu) return;
+    const nav = document.getElementById("studio-navigation");
+    (nav.querySelector("[aria-current='page']") || nav.querySelector("nav button"))?.focus();
+    const mobile = window.matchMedia("(max-width: 640px)");
+    const resized = () => { if (!mobile.matches) setMenu(false); };
+    mobile.addEventListener("change", resized);
+    return () => mobile.removeEventListener("change", resized);
+  }, [menu]);
+  function closeNav() {
+    setMenu(false);
+    document.querySelector(".mobile-bar button")?.focus();
+  }
   function go(value) {
     location.hash = value;
     setMenu(false);
+  }
+  function openFromNav(dialogName) {
+    if (menu) closeNav();
+    setDialog(dialogName);
   }
   function createForm(key = "", kind = "") {
     setTemplate(key);
@@ -110,8 +129,7 @@ export function App() {
     setScript("");
     setName(samples.find((s) => s.key === key)?.name || "");
     setEntry(kind);
-    setDialog("new");
-    setMenu(false);
+    openFromNav("new");
   }
   async function create(e) {
     e.preventDefault();
@@ -160,6 +178,7 @@ export function App() {
     <button
       key={id}
       className={route.split("/")[0] === id ? "chosen" : ""}
+      aria-current={route.split("/")[0] === id ? "page" : undefined}
       onClick={() => go(id)}
     >
       <Icon size={17} />
@@ -225,6 +244,8 @@ export function App() {
             <button
               className="ico"
               aria-label="打开导航"
+              aria-controls="studio-navigation"
+              aria-expanded={menu}
               onClick={() => setMenu(true)}
             >
               <Menu />
@@ -235,10 +256,21 @@ export function App() {
             <button
               className="scrim"
               aria-label="关闭导航"
-              onClick={() => setMenu(false)}
+              onClick={closeNav}
             ></button>
           )}
-          <aside className={"side " + (menu ? "open" : "")}>
+          <aside id="studio-navigation" className={"side " + (menu ? "open" : "")}
+            onKeyDown={e => {
+              if (!menu) return;
+              if (e.key === "Escape") closeNav();
+              if (e.key !== "Tab") return;
+              const buttons = e.currentTarget.querySelectorAll("button:enabled");
+              const first = buttons[0], last = buttons[buttons.length - 1];
+              if ((!e.shiftKey && e.target === last) || (e.shiftKey && e.target === first)) {
+                e.preventDefault();
+                (e.shiftKey ? last : first).focus();
+              }
+            }}>
             <Mark />
             <nav>
               {nav("home", Home, "首页")}
@@ -253,20 +285,17 @@ export function App() {
               </button>
               {nav("writing", icons.script, "剧本创作")}
               {nav("jobs", Activity, "任务记录")}
-              <button onClick={() => setDialog("environment")}>
+              <button onClick={() => openFromNav("environment")}>
                 <Activity size={17} />
                 ComfyUI 环境
               </button>
-              <button onClick={() => setDialog("promptModels")}><SlidersHorizontal size={17} />提示词模型</button>
+              <button onClick={() => openFromNav("promptModels")}><SlidersHorizontal size={17} />提示词模型</button>
             </nav>
             <label>学习</label>
             <nav>
               {nav("samples", Film, "示例画布")}
               <button
-                onClick={() => {
-                  setMenu(false);
-                  setDialog("guide");
-                }}
+                onClick={() => openFromNav("guide")}
               >
                 <BookOpen size={17} />
                 使用指南
@@ -275,7 +304,7 @@ export function App() {
             <StudioUpdate notify={notify} />
             <button
               className="workspace"
-              onClick={() => setDialog("workspace")}
+              onClick={() => openFromNav("workspace")}
             >
               <span className="avatar">镜</span>
               <span>
@@ -285,12 +314,17 @@ export function App() {
               <ChevronRight size={14} />
             </button>
           </aside>
-          <main className="dashboard">
+          <main key={route} data-page={route.split("/")[0]}
+            className={route.startsWith("writing/") ? "dashboard writing-dashboard" : "dashboard"}>
             <header className="dash-head">
-              <span>
+              {route.startsWith("writing/") ? (
+                <button className="quiet" onClick={() => go("writing")}>
+                  <ArrowLeft size={15} /> 我的剧本
+                </button>
+              ) : <span>
                 <span className="tiny-dot" />
                 个人工作区
-              </span>
+              </span>}
               <button className="quiet" onClick={() => setDialog("guide")}>
                 <CircleHelp size={16} />
                 创作指南
@@ -320,42 +354,48 @@ export function App() {
                     );
                   })}
                 </div>
-                <div className="section-title">
-                  <h2>示例画布</h2>
-                  <button onClick={() => go("samples")}>
-                    查看全部 <ArrowRight size={14} />
-                  </button>
+                <div className="home-library">
+                  <section>
+                    <div className="section-title">
+                      <h2>最近项目</h2>
+                      <button onClick={() => go("projects")}>
+                        全部项目 <ArrowRight size={14} />
+                      </button>
+                    </div>
+                    {projects.length ? (
+                      recent(projects.slice(0, 6))
+                    ) : (
+                      <button
+                        className="empty-box"
+                        onClick={() => createForm("tide")}
+                      >
+                        <Clapperboard />
+                        <span>
+                          <strong>从一个完整分镜开始</strong>
+                          <small>打开《潮汐电台》，试着替换第一个镜头。</small>
+                        </span>
+                        <ArrowRight size={18} />
+                      </button>
+                    )}
+                  </section>
+                  <section>
+                    <div className="section-title">
+                      <h2>示例画布</h2>
+                      <button onClick={() => go("samples")}>
+                        查看全部 <ArrowRight size={14} />
+                      </button>
+                    </div>
+                    <div className="samples">
+                      {samples.map((item) => (
+                        <SampleCard
+                          key={item.key}
+                          item={item}
+                          onClick={() => createForm(item.key)}
+                        />
+                      ))}
+                    </div>
+                  </section>
                 </div>
-                <div className="samples">
-                  {samples.map((item) => (
-                    <SampleCard
-                      key={item.key}
-                      item={item}
-                      onClick={() => createForm(item.key)}
-                    />
-                  ))}
-                </div>
-                <div className="section-title">
-                  <h2>最近项目</h2>
-                  <button onClick={() => go("projects")}>
-                    全部项目 <ArrowRight size={14} />
-                  </button>
-                </div>
-                {projects.length ? (
-                  recent(projects.slice(0, 6))
-                ) : (
-                  <button
-                    className="empty-box"
-                    onClick={() => createForm("tide")}
-                  >
-                    <Clapperboard />
-                    <span>
-                      <strong>从一个完整分镜开始</strong>
-                      <small>打开《潮汐电台》，试着替换第一个镜头。</small>
-                    </span>
-                    <ArrowRight size={18} />
-                  </button>
-                )}
               </>
             )}
             {route.split("/")[0] === "writing" && <WritingRoom key={route} id={route.split("/")[1]} go={go} />}
@@ -417,6 +457,7 @@ export function App() {
                     <button
                       key={o}
                       className={o === catalog ? "active" : ""}
+                      aria-pressed={o === catalog}
                       onClick={() => setCatalog(o)}
                     >
                       {o}
@@ -444,7 +485,7 @@ export function App() {
           title={template ? "使用示例画布" : "新建画布"}
           close={() => setDialog("")}
         >
-          <form onSubmit={create} className="form">
+          <form onSubmit={create} className="form project-create">
             {template && (
               <img
                 className="form-cover"
