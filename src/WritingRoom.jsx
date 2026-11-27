@@ -114,6 +114,7 @@ function Setup({ value, onChange }) {
           onChange={(e) => set("direction", e.target.value)}
           placeholder="填入自己的编剧提示词，或补充对节奏、对白、叙事方式的要求"
         />
+        <a href="/prompts/screenwriter.txt" download="通用编剧提示词.txt">下载通用编剧提示词</a>
       </details>
       <div className="wr-section-heading wr-length-heading">
         <h2>片名与篇幅</h2>

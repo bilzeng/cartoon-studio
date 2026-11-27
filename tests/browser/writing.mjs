@@ -107,6 +107,12 @@ test("编剧对话离开后续写，手改方案贯穿章节、资产、分镜�
   await button("更换编剧，当前为悬疑推理").waitFor();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByText("查看与补充风格提示词", { exact: true }).click();
+  const guideLink = page.getByRole("link", { name: "下载通用编剧提示词" });
+  const guideFile = await page.request.get(new URL(await guideLink.getAttribute("href"), base).href);
+  assert.ok(guideFile.ok());
+  const guide = (await guideFile.text()).trim();
+  assert.match(guide, /让人物自己推动故事/);
   await page.getByLabel("剧本名称").fill("邮局");
   await page.getByLabel("章节数").fill("2");
   await page.getByLabel("每章秒数").fill("10");
@@ -122,6 +128,7 @@ test("编剧对话离开后续写，手改方案贯穿章节、资产、分镜�
   release();
   await page.getByRole("heading", { name: "雨信" }).waitFor();
   assert.match(requests[0].system, /误读的线索/);
+  assert.ok(requests[0].system.includes(guide));
   const correction = "寄信的是妹妹。她在找多年没回家的哥哥。";
   await page.getByLabel("和编剧聊聊").fill(correction);
   await button("按当前设定再写三版").click();
@@ -153,6 +160,7 @@ test("编剧对话离开后续写，手改方案贯穿章节、资产、分镜�
   await page.getByText("让收信人先认出笔迹。").waitFor();
   await button("扩写本章").click();
   await button("编辑章节剧本").waitFor();
+  assert.ok(requests.at(-1).system.includes(guide));
   assert.ok(requests.at(-1).ctx.最近对话.some((m) => m.text.includes("笔迹")));
   await button("编辑章节剧本").click();
   await page.getByLabel("章节正文").fill("外景 邮局 雨夜\n邮差摸着旧邮戳。");

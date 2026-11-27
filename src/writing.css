@@ -307,6 +307,13 @@
 .wr-style-note textarea {
   margin-top: 9px;
 }
+.wr-style-note a {
+  display: inline-block;
+  margin-top: 8px;
+  color: inherit;
+  font-size: 13px;
+  text-underline-offset: 3px;
+}
 .wr-length-heading {
   margin-top: 3px;
 }

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import {
   activeConcept,
   assetFields,
@@ -11,6 +12,8 @@ import {
 } from "../shared/writing.js";
 import { referenceTypes } from "../shared/storyboard.js";
 import { fail } from "./storage.mjs";
+
+const screenwritingGuide = readFileSync(new URL("../public/prompts/screenwriter.txt", import.meta.url), "utf8").trim();
 
 export function string(value, label, max, optional = false) {
   if (typeof value !== "string" || value.length > max || (!optional && !value.trim()))
@@ -208,13 +211,11 @@ const formats = {
     '在作者确定的人物关系、动机、起点和结局之内给出三种故事走向。用不同的切入场景、人物选择或叙事节奏产生差异。作者要写成长历程时，给出从起点到目标的关键选择与变化。每个方案写一个可拍的开场钩子、用三句话写清谁遇到什么和留下什么悬念，再给出核心看点及追看理由。返回 {"ideas":[{"title":"","hook":"","summary":"","appeal":""}]}。',
   concept: '按照修改要求仅修改选定梗概。返回 {"idea":{"title":"","hook":"","summary":"","appeal":""}}。',
   outline:
-    '为选定梗概构建完整叙事弧，严格按目标章数输出。每章用一至三句交代起点、人物此刻相信什么、哪件事足以改变其判断、他因此怎样选择、留下什么后果。让关键转变占得下本章秒数；篇幅紧时删次要事件，多章可把后果留到下章。跨时交代经过多久及为何要等。返回 {"chapters":[{"title":"","summary":""}]}。',
+    '为选定梗概构建完整叙事弧，严格按目标章数输出。每章用一至三句写出本章的起点、值得展开的变化及其后果，按目标秒数安排事件，衔接相邻章节。返回 {"chapters":[{"title":"","summary":""}]}。',
   script:
     [
       "只扩写指定的一章。保留选稿的人物、事件与相邻章衔接，用场次、内外景、地点、时段、可拍到的动作和署名短对白写成剧本。",
-      "把关键决定之前的过程演出来。重创过后，留给人物一个仍受上件事影响的日常动作。遇到难以置信的消息，写他最初怎样解释或拒绝、亲自核验了什么、哪个具体结果使他愿意冒这一次险。证据只够试探时，人物可以仍然半信半疑。按本章处境取舍。",
-      "在情绪转折或时间流逝处，给有叙事作用的无人空镜或无言反应实际的银幕时间。单独起一行写【空镜 N秒】或【反应 N秒】和具体可见可听的内容，N 为 1 至 30 的整数。留住这几秒，不用旁白解释情绪。没有相应转折的短场景可直接推进。",
-      "辨清故事里过了多久和观众实际看了多少秒。核对地点、昼夜和事件可发生的时段；遇到营业、开市、等人、等结果等条件，场头写下一个可行时点，用前后呼应的物件、声音或光线带过等待。按目标秒数给对白、动作和留白留足时间，删去重复刺激。",
+      "如需为无人空镜或无言反应保留银幕时间，单独起一行写【空镜 N秒】或【反应 N秒】和具体可见可听的内容，N 为 1 至 30 的整数，计入本章总时长。",
       '返回 {"script":"完整多行剧本文本"}。',
     ].join("\n"),
   assets:
@@ -283,10 +284,10 @@ export function modelInput(draft, action, chapterId, shotId, note = "") {
         ? ' 返回 {"shot":' + shotShape + "}"
         : "");
   const system = [
-    "你是镜场的签约编剧，与作者共同开发可实际拍摄的作品。",
+    screenwritingGuide,
     writers[draft.style].prompt,
     draft.direction,
-    "先核对作者设定、历次作者补充和本轮要求。作者明确更正的动机、关系、起点、目标按时间以最新表述为准，未改动的事实继续有效。这些约束适用于每一个备选和后续制作。提问、试探和单镜要求只按原意及适用范围处理。",
+    "先核对作者设定、历次作者补充和本轮要求。这些约束适用于每一个备选和后续制作。讨论中的提问、试探和单镜要求只按原意及适用范围处理。",
     "未选梗概与编剧在讨论中提出的情节都属于备选。只有作者采纳或明确引用的部分可延续。即使是选稿，与作者后续明确纠正冲突的部分也须重写。编剧风格服从作者设定。",
     format,
     ["shots", "shot"].includes(action) &&
