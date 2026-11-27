@@ -1,0 +1,304 @@
+import {
+  activeConcept,
+  assetFields,
+  conceptFields,
+  takeFields,
+  writers,
+  writingActions,
+} from "../shared/writing.js";
+import { referenceTypes } from "../shared/storyboard.js";
+import { fail } from "./storage.mjs";
+
+export function string(value, label, max, optional = false) {
+  if (typeof value !== "string" || value.length > max || (!optional && !value.trim()))
+    throw fail(label + "须为" + (optional ? "不超过" : "1 至") + max + "字的文本");
+  return value.trim();
+}
+function integer(value, label, min, max) {
+  if (!Number.isInteger(value) || value < min || value > max)
+    throw fail(label + "须在 " + min + " 至 " + max + " 之间");
+  return value;
+}
+export function config(input) {
+  if (!Object.hasOwn(writers, input.style)) throw fail("请选择编剧风格");
+  return {
+    name: string(input.name, "剧本名称", 100),
+    style: input.style,
+    direction: string(input.direction || "", "编剧风格提示词", 4000, input.style !== "custom"),
+    count: integer(input.count, "章节数", 1, 60),
+    seconds: integer(input.seconds, "每章目标秒数", 5, 300),
+  };
+}
+function fields(row, labels, limits) {
+  return Object.fromEntries(
+    Object.entries(labels).map(([key, label]) => [
+      key,
+      string(row?.[key], label, limits[key] || 1500, key === "dialogue"),
+    ]),
+  );
+}
+function rows(value, label, min, max) {
+  if (!Array.isArray(value) || value.length < min || value.length > max)
+    throw fail(label + "数量应为 " + min + (min === max ? "" : " 至 " + max));
+  return value;
+}
+const ideaText = (value) => fields(value, conceptFields, { title: 80, summary: 4000 });
+const outlineText = (value) =>
+  fields(value, { title: "章节名", summary: "章节提要" }, { title: 100, summary: 3000 });
+function assetText(value) {
+  if (!Object.hasOwn(referenceTypes, value?.type)) throw fail("资产类别无效");
+  return { type: value.type, ...fields(value, assetFields, { name: 100, prompt: 4000 }) };
+}
+function takeText(value, chapter) {
+  const ids = rows(value?.assetIds, "镜头引用", 0, chapter.assets.length);
+  if (ids.some((id) => !chapter.assets.some((a) => a.id === id)) || ids.length !== new Set(ids).size)
+    throw fail("镜头引用了未知或重复的资产编号");
+  return {
+    ...fields(value, takeFields, { title: 90, visual: 3000, imagePrompt: 4000, videoPrompt: 4000 }),
+    duration: integer(value.duration, "单镜秒数", 1, 30),
+    assetIds: ids,
+  };
+}
+// Give the model short references, while the draft and canvas keep permanent asset IDs.
+function modelTake(take, chapter) {
+  const ids = take?.assetIds;
+  if (!Array.isArray(ids)) throw fail("分镜缺少资产引用列表");
+  return takeText(
+    {
+      ...take,
+      assetIds: ids.map((id) => {
+        const match = /^A([1-9]\d*)$/.exec(id);
+        return match ? chapter.assets[Number(match[1]) - 1]?.id : id;
+      }),
+    },
+    chapter,
+  );
+}
+function balanceDurations(shots, seconds) {
+  const sum = shots.reduce((total, s) => total + s.duration, 0);
+  if (sum === seconds) return;
+  if (seconds < shots.length || seconds > 30 * shots.length) throw fail("镜头数量无法覆盖本章时长");
+  const ideal = shots.map((s) => (s.duration * seconds) / sum);
+  shots.forEach((s, i) => {
+    s.duration = Math.max(1, Math.min(30, Math.floor(ideal[i])));
+  });
+  let difference = seconds - shots.reduce((total, s) => total + s.duration, 0);
+  while (difference) {
+    const step = Math.sign(difference);
+    let best = -1,
+      priority = -Infinity;
+    shots.forEach((s, i) => {
+      const remainder = step * (ideal[i] - s.duration);
+      if (s.duration + step >= 1 && s.duration + step <= 30 && remainder > priority) {
+        best = i;
+        priority = remainder;
+      }
+    });
+    shots[best].duration += step;
+    difference -= step;
+  }
+}
+function mark(chapter, ...stages) {
+  for (const stage of stages)
+    if (chapter[stage]?.length && !chapter.review.includes(stage)) chapter.review.push(stage);
+}
+function current(draft, chapterId) {
+  const idea = activeConcept(draft);
+  return { idea, chapter: idea?.chapters.find((c) => c.id === chapterId) };
+}
+export function editContent(draft, command) {
+  const { action, value, id, chapterId } = command;
+  if (action === "settings") return Object.assign(draft, config(value));
+  if (action === "select") {
+    if (!draft.ideas.some((i) => i.id === id)) throw fail("梗概不存在");
+    draft.selectedId = id;
+    return;
+  }
+  if (action === "idea") {
+    const item = draft.ideas.find((i) => i.id === id);
+    if (!item) throw fail("梗概不存在");
+    Object.assign(item, ideaText(value));
+    for (const c of item.chapters) mark(c, "script", "assets", "shots");
+    return;
+  }
+  const { chapter } = current(draft, chapterId);
+  if (!chapter) throw fail("章节不存在");
+  if (action === "chapter") {
+    Object.assign(chapter, outlineText(value));
+    mark(chapter, "script", "assets", "shots");
+  } else if (action === "script") {
+    chapter.script = string(value, "剧本", 24000);
+    mark(chapter, "assets", "shots");
+    chapter.review = chapter.review.filter((s) => s !== "script");
+  } else if (action === "asset") {
+    const asset = chapter.assets.find((a) => a.id === id);
+    if (!asset) throw fail("资产不存在");
+    Object.assign(asset, assetText(value));
+    mark(chapter, "shots");
+  } else if (action === "shot") {
+    const shot = chapter.shots.find((s) => s.id === id);
+    if (!shot) throw fail("分镜不存在");
+    Object.assign(shot, takeText(value, chapter));
+  } else if (action === "review" && chapter.review.includes(value)) {
+    chapter.review = chapter.review.filter((s) => s !== value);
+  } else throw fail("未知的剧本编辑操作");
+}
+const formats = {
+  chat: "结合对话和当前选稿，直接用中文回应作者，可以提出具体修改建议。只返回普通文本。",
+  ideas:
+    '提出三个截然不同的故事走向。每个方案写一个可拍的开场钩子、用三句话写清谁遇到什么和留下什么悬念，再给出核心看点及追看理由。返回 {"ideas":[{"title":"","hook":"","summary":"","appeal":""}]}。',
+  concept: '按照修改要求仅修改选定梗概。返回 {"idea":{"title":"","hook":"","summary":"","appeal":""}}。',
+  outline:
+    '为选定梗概构建完整叙事弧，严格按目标章数输出。每章用一至三句说明起点、转折、落点和如何衔接下一章，篇幅适合该章目标秒数。返回 {"chapters":[{"title":"","summary":""}]}。',
+  script:
+    '只扩写指定的一章，遵循全剧提要、相邻章节、已建立的人物设定及目标时长。写场次、内外景、可拍到的行动与带说话人姓名的口语对白，让每场改变人物处境。返回 {"script":"完整多行剧本文本"}。',
+  assets:
+    '从当前章剧本提取实际出现的角色、场景和重要道具，按 type=character/scene/prop 分类。同一角色统一命名，延用前章设定。描述身份、目标及可辨识外观，场景写空间和光线，道具写材质与尺寸感。每项另写可独立生成参考图的视觉提示词，保持统一美术设定。最多24项。返回 {"assets":[{"type":"character","name":"","description":"","prompt":""}]}。',
+  shots:
+    "仅拆当前章。按节奏安排可拍的镜头，1至30个镜头，每镜1至30整数秒，各镜 duration 之和严格等于本章秒数。时间仅填 duration 字段，正文不重复写时间码。分镜交代景别、画面、运镜、对白或声音，引用本章已提供的资产ID。绘图提示词描述单帧构图、视觉锚点、光色和氛围；视频提示词给出起始画面、动作、运镜和声音。每条提示词可独立制作。",
+  shot: "按作者要求只改指定的一镜，保留该镜原时长和相邻镜头的连续性。使用已给的资产ID。",
+};
+const shotShape =
+  '{"title":"","duration":5,"framing":"","visual":"","camera":"","dialogue":"","assetIds":[],"imagePrompt":"","videoPrompt":""}';
+function chapterContext(c) {
+  return { title: c.title, summary: c.summary, seconds: c.seconds };
+}
+export function modelInput(draft, action, chapterId, shotId, note) {
+  if (!Object.hasOwn(formats, action)) throw fail("未知的创作步骤");
+  const { idea, chapter } = current(
+    draft,
+    ["ideas", "outline", "concept"].includes(action) ? null : chapterId,
+  );
+  if (!["chat", "ideas"].includes(action) && !idea) throw fail("请先选定一个故事梗概");
+  if (["script", "assets", "shots", "shot"].includes(action) && !chapter) throw fail("请先选择章节");
+  if (["assets", "shots", "shot"].includes(action) && !chapter.script) throw fail("请先扩写本章剧本");
+  if (["shots", "shot"].includes(action) && !chapter.assets.length) throw fail("请先整理本章资产");
+  const target = chapter?.shots.find((s) => s.id === shotId);
+  if (action === "shot" && !target) throw fail("请选择要修改的镜头");
+  const format =
+    formats[action] +
+    (action === "shots"
+      ? ' 返回 {"shots":[' + shotShape + "]}"
+      : action === "shot"
+        ? ' 返回 {"shot":' + shotShape + "}"
+        : "");
+  const system = [
+    "你是镜场的签约编剧，与作者共同开发可实际拍摄的作品。",
+    writers[draft.style].prompt,
+    draft.direction,
+    format,
+    action !== "chat" && "只输出要求的 JSON 对象。所有内容使用作者的语言。",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const otherAssets = new Map();
+  for (const c of idea?.chapters || [])
+    if (c.id !== chapterId)
+      for (const a of c.assets)
+        otherAssets.set(a.type + a.name, { type: a.type, name: a.name, description: a.description });
+  const assets = chapter?.assets.map((a, i) => ({ ...a, id: "A" + (i + 1) }));
+  const existingShot = (s) => ({
+    ...s,
+    assetIds: s.assetIds.map((id) => assets[chapter.assets.findIndex((a) => a.id === id)]?.id),
+  });
+  const user = JSON.stringify({
+    剧本: draft.name,
+    目标章数: draft.count,
+    每章目标秒数: chapter?.seconds ?? draft.seconds,
+    最初创意: draft.brief,
+    最近对话: draft.messages
+      .filter((m) => !m.ideaId || m.ideaId === idea?.id)
+      .slice(-12)
+      .map(({ role, text }) => ({ role, text: text.slice(0, 4000) })),
+    候选梗概: ["ideas", "chat"].includes(action) ? draft.ideas.slice(-9).map(ideaText) : undefined,
+    选定梗概: idea && ideaText(idea),
+    全剧章节: idea?.chapters.map(chapterContext),
+    上章结尾: chapter && idea.chapters[idea.chapters.indexOf(chapter) - 1]?.script.slice(-1800),
+    全剧资产设定: [...otherAssets.values()].slice(0, 80),
+    当前章: chapter && {
+      ...chapterContext(chapter),
+      正文: chapter.script,
+      资产: assets,
+      现有分镜: ["shots", "shot", "chat"].includes(action) ? chapter.shots.map(existingShot) : undefined,
+    },
+    指定镜头: target && existingShot(target),
+    本轮任务: writingActions[action],
+    作者要求: note,
+  });
+  return { system, user };
+}
+
+export function applyReply(draft, task, output) {
+  const { action, chapterId, shotId } = task;
+  if (action === "chat") return string(output, "编剧回复", 32000);
+  const result = JSON.parse(output.trim().replace(/^`{3}(?:json)?\s*([\s\S]*?)\s*`{3}$/i, "$1"));
+  const { idea, chapter } = current(draft, chapterId);
+  if (action === "ideas") {
+    const created = rows(result.ideas, "梗概", 3, 3).map((v) => ({
+      ...ideaText(v),
+      id: crypto.randomUUID(),
+      chapters: [],
+    }));
+    draft.ideas.push(...created);
+    return "写好了三版梗概：" + created.map((i) => "《" + i.title + "》").join("、") + "。";
+  }
+  if (action === "concept") {
+    editContent(draft, { action: "idea", id: idea.id, value: result.idea });
+    return "已修改《" + idea.title + "》的梗概。";
+  }
+  if (action === "outline") {
+    const chapters = rows(result.chapters, "章节", draft.count, draft.count).map((v) => ({
+      ...outlineText(v),
+      id: crypto.randomUUID(),
+      seconds: draft.seconds,
+      script: "",
+      assets: [],
+      shots: [],
+      review: [],
+    }));
+    if (idea.chapters.length) {
+      const branch = { ...ideaText(idea), id: crypto.randomUUID(), chapters };
+      draft.ideas.push(branch);
+      draft.selectedId = branch.id;
+    } else idea.chapters = chapters;
+    return "已写好 " + chapters.length + " 章大纲，从《" + chapters[0].title + "》开始。";
+  }
+  if (action === "script") editContent(draft, { action, chapterId, value: result.script });
+  if (action === "assets") {
+    const assets = rows(result.assets, "资产", 1, 24).map(assetText);
+    const keys = assets.map((a) => a.type + ":" + a.name);
+    if (new Set(keys).size !== keys.length) throw fail("同类型资产重名");
+    chapter.assets = assets.map((a) => ({
+      ...a,
+      id: chapter.assets.find((old) => old.name === a.name && old.type === a.type)?.id || crypto.randomUUID(),
+    }));
+    const ids = new Set(chapter.assets.map((a) => a.id));
+    for (const s of chapter.shots) s.assetIds = s.assetIds.filter((id) => ids.has(id));
+    mark(chapter, "shots");
+  }
+  if (action === "shots") {
+    const shots = rows(result.shots, "分镜", 1, 30).map((v) => ({
+      ...modelTake(v, chapter),
+      id: crypto.randomUUID(),
+    }));
+    balanceDurations(shots, chapter.seconds);
+    chapter.shots = shots;
+  }
+  if (action === "shot") {
+    const original = chapter.shots.find((s) => s.id === shotId);
+    Object.assign(original, modelTake({ ...result.shot, duration: original.duration }, chapter));
+  }
+  chapter.review = chapter.review.filter((s) => s !== action);
+  return (
+    "《" +
+    chapter.title +
+    "》" +
+    {
+      script: "的剧本已写好",
+      assets: "已整理 " + chapter.assets.length + " 项资产",
+      shots: "已拆成 " + chapter.shots.length + " 镜",
+      shot: "的指定镜头已修改",
+    }[action] +
+    "。"
+  );
+}

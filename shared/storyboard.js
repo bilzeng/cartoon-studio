@@ -1,5 +1,15 @@
 import { seriesPrompt } from "./series.js";
 
+// Imported storyboard clips supply the initial duration until the author sets a workflow value.
+export function shotWorkflowValues(data, model) {
+  const values = data?.workflowValues;
+  const key = model?.durationKey;
+  if (!data?.sourceShotId || !key || values?.[key] != null) return values;
+  const field = model.fields?.find(f => f.key === key);
+  if (!field || !model.controls?.includes(key)) return values;
+  return { ...values, [key]: Math.max(field.min ?? 1, Math.min(field.max ?? 30, data.duration)) };
+}
+
 export const referenceTypes = {
   character: "角色",
   scene: "场景",
@@ -36,6 +46,8 @@ export function shotPrompt(board, data, kind = "image") {
     if (data[key]?.trim()) lines.push(label + "：" + data[key].trim());
   }
   lines.push(data.text.trim());
+  const prompt = kind === "video" ? data.videoPrompt : kind === "image" ? data.imagePrompt : "";
+  if (prompt?.trim()) lines.push(prompt.trim());
   return seriesPrompt(
     cast || {},
     lines.filter(Boolean).join("\n"),

@@ -26,6 +26,7 @@ import { api } from "./client";
 import { Guide, Mark, Media, Modal, SampleCard, icons } from "./ui";
 import { Library, Jobs } from "./library";
 import { Editor } from "./editor";
+import { WritingRoom } from "./WritingRoom";
 import { StudioUpdate } from "./StudioUpdate";
 
 function CanvasLaunch({ onClick }) {
@@ -158,7 +159,7 @@ export function App() {
   const nav = (id, Icon, label) => (
     <button
       key={id}
-      className={route === id ? "chosen" : ""}
+      className={route.split("/")[0] === id ? "chosen" : ""}
       onClick={() => go(id)}
     >
       <Icon size={17} />
@@ -250,6 +251,7 @@ export function App() {
                 <Clapperboard size={17} />
                 创作画布
               </button>
+              {nav("writing", icons.script, "剧本创作")}
               {nav("jobs", Activity, "任务记录")}
               <button onClick={() => setDialog("environment")}>
                 <Activity size={17} />
@@ -301,6 +303,7 @@ export function App() {
                   <h2>创作工具</h2>
                 </div>
                 <div className="shortcuts">
+                  <button className="outline" onClick={() => go("writing")}><BookOpen size={16} />剧本创作</button>
                   {[
                     ["script", "剧本拆镜"],
                     ["image", "图片创作"],
@@ -355,6 +358,7 @@ export function App() {
                 )}
               </>
             )}
+            {route.split("/")[0] === "writing" && <WritingRoom key={route} id={route.split("/")[1]} go={go} />}
             {route === "projects" && (
               <>
                 <div className="page-title">

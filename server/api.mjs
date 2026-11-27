@@ -6,6 +6,7 @@ import { registerOptimizer } from "./prompt-optimizer.mjs";
 import { optimizationContext, effectivePrompt } from "../shared/prompt-optimizer.js";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { registerWriting } from "./writing.mjs";
 import { findBoard, listBoardFiles, locateAssetFile, organizeWorkspace } from "./project-files.mjs";
 import { assetCatalog } from "./asset-library.mjs";
 import { updateTags } from "../shared/asset-tags.js";
@@ -48,6 +49,7 @@ import {
 import { seriesPrompt } from "../shared/series.js";
 import {
   shotPrompt as composeShot,
+  shotWorkflowValues,
   referencesForShot,
   shotFields,
 } from "../shared/storyboard.js";
@@ -165,6 +167,7 @@ export function studioApi() {
   app.use("/api", api);
   api.use(express.json({ limit: "4mb" }));
   registerOptimizer(api);
+  registerWriting(api);
   registerDirectorScene(api);
   api.get("/projects", async (_req, res) => {
     res.json(await listProjects());
@@ -808,12 +811,13 @@ export function studioApi() {
     if (kind === "video") {
       if (selectedId && selectedId !== "studio:default-video" && !preset)
         throw fail("当前环境缺少所选视频工作流，请重新选择");
+      const shotValues = shotWorkflowValues(canvasNode?.data, descriptor);
       const values = selectedId === h3ContinuationModelId
         ? {
-            ...canvasNode.data.workflowValues,
+            ...shotValues,
             [h3ContinuationFields.secondPrompt]: presetInputs.secondPrompt,
           }
-        : canvasNode?.data.workflowValues;
+        : shotValues;
       const config = preset
         ? bindPreset(
             preset,

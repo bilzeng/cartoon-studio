@@ -145,6 +145,11 @@ export function ShotTable({
                     </td>
                     <td>
                       {input(n, "text", "画面描述")}
+                      {["imagePrompt", "videoPrompt"].filter(key => n.data[key] !== undefined).map(key =>
+                        <details key={key}><summary>{key === "imagePrompt" ? "编辑绘图提示词" : "编辑视频提示词"}</summary>
+                          <textarea aria-label={key === "imagePrompt" ? "绘图提示词" : "视频提示词"} maxLength={4000} value={n.data[key]} onChange={e => update(n.id, { [key]: e.target.value })} />
+                        </details>
+                      )}
                       <details>
                         <summary>图片提示词</summary>
                         <pre>{shotPrompt(board, n.data)}</pre>

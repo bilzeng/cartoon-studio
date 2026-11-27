@@ -1,3 +1,4 @@
+import { shotWorkflowValues } from "../shared/storyboard";
 import React, { useRef, useState } from "react";
 import { ChevronDown, Clock3 } from "lucide-react";
 import { h3Fields, h3VideoModelId } from "../shared/h3-video";
@@ -130,7 +131,7 @@ export function VideoDuration({ model, data, set, fieldKey, label = "视频时�
   const min = field ? Math.max(0, field.min ?? 0) : 1;
   const max = field ? field.max : model.native ? 5 : 30;
   const seconds = field
-    ? (data.workflowValues?.[field.key] ?? field.value)
+    ? (shotWorkflowValues(data, model)?.[field.key] ?? field.value)
     : Math.min(data.duration ?? 3, max);
   const valid = (n) =>
     Number.isFinite(n) && n > 0 && n >= min && (max == null || n <= max);

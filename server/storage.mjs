@@ -271,7 +271,11 @@ export async function validateBoard(board) {
       )
     )
       throw fail("节点生成参数无效");
+    if (d.sourceShotId !== undefined && (d.kind !== "video" || typeof d.sourceShotId !== "string" || d.sourceShotId.length > 100))
+      throw fail("视频来源镜头无效");
     if (d.kind === "shot") {
+      if ([d.imagePrompt, d.videoPrompt].some(p => p !== undefined && (typeof p !== "string" || p.length > 4000)))
+        throw fail("单镜制作提示词最多 4000 字");
       const refs = d.referenceIds === undefined ? [] : d.referenceIds;
       if (
         !Array.isArray(refs) ||

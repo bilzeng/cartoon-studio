@@ -1,4 +1,5 @@
 import { h3ContinuationFields, h3ContinuationModelId, h3Fields, usesH3Prompt } from "./h3-video.js";
+import { shotWorkflowValues } from "./storyboard.js";
 import { referenceToken } from "./canvas.js";
 
 export const h3ReferenceFields = [
@@ -20,8 +21,9 @@ export const h3Opening =
 export function optimizationContext(data, model, resolved, ratio, { forEditor = false } = {}) {
   const kind = data.kind ?? "video";
   const h3 = kind === "video" && usesH3Prompt(model);
+  const values = shotWorkflowValues(data, model);
   const fieldValue = (key) =>
-    data.workflowValues?.[key] ??
+    values?.[key] ??
     model.fields?.find((f) => f.key === key)?.value;
   const requestedDuration =
     fieldValue(model.durationKey || (h3 && h3Fields.duration)) ??
